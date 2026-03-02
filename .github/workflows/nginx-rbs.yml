@@ -18,51 +18,48 @@ jobs:
 
       - name: Install Debian Build Stack
         run: |
-          # 1. DEVOPS FIX: Wipe all existing sources (main and directory) to kill 404 ghosts
+          # 1. Install HTTPS support first
+          apt-get update
+          apt-get install -y ca-certificates apt-transport-https
+
+          # 2. Nuclear wipe of ALL sources (main and directory)
           rm -rf /etc/apt/sources.list.d/*
           echo "" > /etc/apt/sources.list
           
-          # 2. Reconstruct from scratch using correct absolute /debian/ paths
+          # 3. Use HTTPS and the full /debian/ path
           cat <<EOF > /etc/apt/sources.list
-          deb http://deb.debian.org ${{ matrix.debian_version }} main
-          deb-src http://deb.debian.org ${{ matrix.debian_version }} main
-          deb http://deb.debian.org ${{ matrix.debian_version }}-updates main
-          deb-src http://deb.debian.org ${{ matrix.debian_version }}-updates main
+          deb https://deb.debian.org ${{ matrix.debian_version }} main
+          deb-src https://deb.debian.org ${{ matrix.debian_version }} main
+          deb https://deb.debian.org ${{ matrix.debian_version }}-updates main
+          deb-src https://deb.debian.org ${{ matrix.debian_version }}-updates main
           EOF
 
-          # 3. Handle Security repos (Trixie/Testing uses main repo for security)
+          # 4. Handle Security via HTTPS
           if [ "${{ matrix.debian_version }}" = "bookworm" ]; then
             cat <<EOF >> /etc/apt/sources.list
-            deb http://deb.debian.org-security bookworm-security main
-            deb-src http://deb.debian.org-security bookworm-security main
+            deb https://deb.debian.org-security bookworm-security main
+            deb-src https://deb.debian.org-security bookworm-security main
           EOF
           fi
 
-          # 4. Clean and Update
+          # 5. Clean, Update, and Install
           apt-get clean
           apt-get update -y
-          
-          # 5. Install build tools
           apt-get install -y dpkg-dev devscripts debhelper fakeroot ruby ruby-dev \
           build-essential libcurl4-openssl-dev libssl-dev zlib1g-dev git wget
 
-      - name: Clone Nginx Modules
+      - name: Clone Fresh Modules
         run: |
           mkdir -p /opt/nginx-modules
-          # Explicit target path for build predictability
           git clone --single-branch --depth 1 https://github.com/nginx/njs.git /opt/nginx-modules/njs
 
       - name: Build Passenger Dynamic Module (Parallel)
         run: |
           gem install passenger 
-          # Robust path detection for Ruby 3.1 vs 3.3
           PASSENGER_ROOT=$(gem env gemdir)/gems/$(gem list passenger | grep passenger | head -n 1 | awk '{print $1 "-" $2}' | tr -d '()')
           PASSENGER_SRC="$PASSENGER_ROOT/src/nginx_module"
           
-          # Parallel build using all available CPU cores
           cd "$PASSENGER_SRC" && rake nginx:as_dynamic_module CACHING=false -j$(nproc)
-          
-          # Pass path to Nginx build environment
           echo "PASSENGER_PATH=$PASSENGER_SRC" >> $GITHUB_ENV
 
       - name: Fetch Nginx Source and Update Changelog
@@ -74,25 +71,21 @@ jobs:
           export DEBFULLNAME="Nginx Packaging"
           export DEBEMAIL="nginx-packaging@f5.com"
           
-          # Logic for: 1.29.5-1~rbs~trixie
           ORIG_VERSION=$(dpkg-parsechangelog -S Version)
           NEW_VERSION="${ORIG_VERSION}~rbs~${{ matrix.debian_version }}"
           
-          # dch replaces version and timestamp automatically
           dch --newversion "$NEW_VERSION" \
               --distribution "${{ matrix.debian_version }}" \
               --force-distribution \
               --force-bad-version \
               "Automated build for version $ORIG_VERSION by RBS."
 
-          # Inject your custom rules file
           cp ../rules-rbs debian/rules
           chmod +x debian/rules
 
       - name: Run dpkg-buildpackage (High Speed)
         run: |
           cd nginx-*/
-          # -j$(nproc) utilizes all cores for compilation
           dpkg-buildpackage -rfakeroot -uc -b -j$(nproc)
 
       - name: Upload .deb Artifacts

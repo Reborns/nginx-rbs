@@ -1,8 +1,6 @@
 name: Manual Build Custom Nginx
 on:
-  workflow_dispatch:
-  push:
-    branches: [ main ]
+  workflow_dispatch: # This enables the "Run workflow" button in GitHub Actions
 
 jobs:
   build:
@@ -21,24 +19,26 @@ jobs:
       - name: Install Debian Build Stack
         run: |
           apt-get update
+          echo "deb-src http://deb.debian.org ${{ matrix.debian_version }} main" >> /etc/apt/sources.list
+          apt-get update
           apt-get install -y dpkg-dev devscripts debhelper fakeroot ruby ruby-dev \
           build-essential libcurl4-openssl-dev libssl-dev zlib1g-dev git wget
-          echo "deb-src http://deb.debian.org/debian ${{ matrix.debian_version }} main" >> /etc/apt/sources.list
-          apt-get update
 
       - name: Clone Fresh Modules from GitHub
         run: |
           mkdir -p /opt/nginx-modules
-          git clone --single-branch --depth 1 https://github.com/nginx/njs.git
+          git clone --depth 1 https://github.com /opt/nginx-modules/njs
 
-      - name: Build Latest Passenger Dynamic Module
+      - name: Build Passenger Dynamic Module (Parallel)
         run: |
           gem install passenger 
-          # Extract path for latest passenger gem
-          PASSENGER_ROOT=$(gem env gemdir)/gems/$(gem list passenger | grep passenger | awk '{print $1 "-" $2}' | tr -d '()')
+          # Auto-detect gem path
+          PASSENGER_ROOT=$(gem env gemdir)/gems/$(gem list passenger | grep passenger | head -n 1 | awk '{print $1 "-" $2}' | tr -d '()')
           PASSENGER_SRC="$PASSENGER_ROOT/src/nginx_module"
           
-          cd $PASSENGER_SRC && rake nginx:as_dynamic_module CACHING=false
+          # Speed up with -j$(nproc) to use all available CPU cores
+          cd "$PASSENGER_SRC" && rake nginx:as_dynamic_module CACHING=false -j$(nproc)
+          
           echo "PASSENGER_PATH=$PASSENGER_SRC" >> $GITHUB_ENV
 
       - name: Fetch Latest Nginx Source and Update Changelog
@@ -47,37 +47,39 @@ jobs:
           apt-get source nginx
           cd nginx-*/
           
-          ORIG_VERSION=$(dpkg-parsechangelog -S Version)
-          NEW_VERSION="${ORIG_VERSION}+rbs~${{ matrix.debian_version }}"
-          
           export DEBFULLNAME="Nginx Packaging"
           export DEBEMAIL="nginx-packaging@f5.com"
           
+          ORIG_VERSION=$(dpkg-parsechangelog -S Version)
+          NEW_VERSION="${ORIG_VERSION}~rbs~${{ matrix.debian_version }}"
+          
+          # dch updates the version AND the build timestamp automatically
           dch --newversion "$NEW_VERSION" \
               --distribution "${{ matrix.debian_version }}" \
               --force-distribution \
               --force-bad-version \
-              "Custom NginX build by RBS."
+              "Automated build for version $ORIG_VERSION by RBS."
 
-          # Ensure your 'my-custom-rules' file exists in your repo root
-          cp ../rules-rbs debian/rules
+          # Apply your custom rules
+          cp ../my-custom-rules debian/rules
           chmod +x debian/rules
 
       - name: Run dpkg-buildpackage
         run: |
           cd nginx-*/
-          dpkg-buildpackage -rfakeroot -uc -b
+          # Build binary package only
+          dpkg-buildpackage -rfakeroot -uc -b -j$(nproc)
 
       - name: Upload .deb Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: nginx-custom-${{ matrix.debian_version }}
+          name: nginx-binaries-${{ matrix.debian_version }}
           path: ./*.deb
 
-      - name: Push to GitHub Releases
+      - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: "manual-build-${{ matrix.debian_version }}"
+          tag_name: "manual-build-${{ matrix.debian_version }}-${{ github.run_id }}"
           files: ./*.deb
-          name: "Manual Nginx Build (${{ matrix.debian_version }})"
+          name: "Nginx ${{ matrix.debian_version }} Build"
           body: "Custom Nginx build for ${{ matrix.debian_version }}. Compiled on $(date)."

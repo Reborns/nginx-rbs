@@ -19,7 +19,16 @@ jobs:
       - name: Install Debian Build Stack
         run: |
           apt-get update
+          # Fix: Use correct /debian/ path for main and source repos
+          echo "deb http://deb.debian.org ${{ matrix.debian_version }} main" > /etc/apt/sources.list
           echo "deb-src http://deb.debian.org ${{ matrix.debian_version }} main" >> /etc/apt/sources.list
+          
+          # Add Security repos (Crucial for latest patched versions)
+          if [ "${{ matrix.debian_version }}" = "bookworm" ]; then
+            echo "deb http://security.debian.org ${{ matrix.debian_version }}-security main" >> /etc/apt/sources.list
+            echo "deb-src http://security.debian.org ${{ matrix.debian_version }}-security main" >> /etc/apt/sources.list
+          fi
+
           apt-get update
           apt-get install -y dpkg-dev devscripts debhelper fakeroot ruby ruby-dev \
           build-essential libcurl4-openssl-dev libssl-dev zlib1g-dev git wget
@@ -27,7 +36,7 @@ jobs:
       - name: Clone Fresh Modules from GitHub
         run: |
           mkdir -p /opt/nginx-modules
-          git clone --depth 1 https://github.com /opt/nginx-modules/njs
+           git clone --single-branch --depth 1 https://github.com/nginx/njs.git
 
       - name: Build Passenger Dynamic Module (Parallel)
         run: |
@@ -61,7 +70,7 @@ jobs:
               "Automated build for version $ORIG_VERSION by RBS."
 
           # Apply your custom rules
-          cp ../my-custom-rules debian/rules
+          cp ../rules-rbs debian/rules
           chmod +x debian/rules
 
       - name: Run dpkg-buildpackage

@@ -1,6 +1,6 @@
 name: Manual Build Custom Nginx
 on:
-  workflow_dispatch: # This enables the "Run workflow" button in GitHub Actions
+  workflow_dispatch:
 
 jobs:
   build:
@@ -18,39 +18,47 @@ jobs:
 
       - name: Install Debian Build Stack
         run: |
-          apt-get update
-          # Fix: Use correct /debian/ path for main and source repos
-          echo "deb http://deb.debian.org ${{ matrix.debian_version }} main" > /etc/apt/sources.list
-          echo "deb-src http://deb.debian.org ${{ matrix.debian_version }} main" >> /etc/apt/sources.list
-          
-          # Add Security repos (Crucial for latest patched versions)
+          # 1. Wipe and write fresh sources.list to solve the 404/Release file issue
+          cat <<EOF > /etc/apt/sources.list
+          deb http://deb.debian.org ${{ matrix.debian_version }} main
+          deb-src http://deb.debian.org ${{ matrix.debian_version }} main
+          deb http://deb.debian.org ${{ matrix.debian_version }}-updates main
+          deb-src http://deb.debian.org ${{ matrix.debian_version }}-updates main
+          EOF
+
+          # 2. Add Security repos (Logic differs between Stable and Testing)
           if [ "${{ matrix.debian_version }}" = "bookworm" ]; then
-            echo "deb http://security.debian.org ${{ matrix.debian_version }}-security main" >> /etc/apt/sources.list
-            echo "deb-src http://security.debian.org ${{ matrix.debian_version }}-security main" >> /etc/apt/sources.list
+            cat <<EOF >> /etc/apt/sources.list
+            deb http://security.debian.org bookworm-security main
+            deb-src http://security.debian.org bookworm-security main
+          EOF
           fi
 
-          apt-get update
+          # 3. Update and install build-essential tools
+          apt-get update -y
           apt-get install -y dpkg-dev devscripts debhelper fakeroot ruby ruby-dev \
           build-essential libcurl4-openssl-dev libssl-dev zlib1g-dev git wget
 
-      - name: Clone Fresh Modules from GitHub
+      - name: Clone Fresh Modules
         run: |
           mkdir -p /opt/nginx-modules
-           git clone --single-branch --depth 1 https://github.com/nginx/njs.git
+          # Explicit target path as you requested to ensure build predictability
+          git clone --single-branch --depth 1 https://github.com/nginx/njs.git /opt/nginx-modules/njs
 
       - name: Build Passenger Dynamic Module (Parallel)
         run: |
           gem install passenger 
-          # Auto-detect gem path
+          # Robust path detection for varying Ruby versions (3.1 vs 3.3)
           PASSENGER_ROOT=$(gem env gemdir)/gems/$(gem list passenger | grep passenger | head -n 1 | awk '{print $1 "-" $2}' | tr -d '()')
           PASSENGER_SRC="$PASSENGER_ROOT/src/nginx_module"
           
-          # Speed up with -j$(nproc) to use all available CPU cores
+          # Maximize speed with all available CPU cores
           cd "$PASSENGER_SRC" && rake nginx:as_dynamic_module CACHING=false -j$(nproc)
           
+          # Pass path to Nginx build environment
           echo "PASSENGER_PATH=$PASSENGER_SRC" >> $GITHUB_ENV
 
-      - name: Fetch Latest Nginx Source and Update Changelog
+      - name: Fetch Nginx Source and Update Changelog
         run: |
           apt-get build-dep -y nginx
           apt-get source nginx
@@ -59,24 +67,25 @@ jobs:
           export DEBFULLNAME="Nginx Packaging"
           export DEBEMAIL="nginx-packaging@f5.com"
           
+          # Version: 1.29.5-1~rbs~trixie
           ORIG_VERSION=$(dpkg-parsechangelog -S Version)
           NEW_VERSION="${ORIG_VERSION}~rbs~${{ matrix.debian_version }}"
           
-          # dch updates the version AND the build timestamp automatically
+          # dch generates the entry and current timestamp automatically
           dch --newversion "$NEW_VERSION" \
               --distribution "${{ matrix.debian_version }}" \
               --force-distribution \
               --force-bad-version \
               "Automated build for version $ORIG_VERSION by RBS."
 
-          # Apply your custom rules
+          # Apply your custom rules file
           cp ../rules-rbs debian/rules
           chmod +x debian/rules
 
-      - name: Run dpkg-buildpackage
+      - name: Run dpkg-buildpackage (High Speed)
         run: |
           cd nginx-*/
-          # Build binary package only
+          # -j$(nproc) ensures Nginx also compiles using all cores
           dpkg-buildpackage -rfakeroot -uc -b -j$(nproc)
 
       - name: Upload .deb Artifacts
@@ -90,5 +99,5 @@ jobs:
         with:
           tag_name: "manual-build-${{ matrix.debian_version }}-${{ github.run_id }}"
           files: ./*.deb
-          name: "Nginx ${{ matrix.debian_version }} Build"
+          name: "Nginx Build (${{ matrix.debian_version }})"
           body: "Custom Nginx build for ${{ matrix.debian_version }}. Compiled on $(date)."

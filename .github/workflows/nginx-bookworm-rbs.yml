@@ -40,7 +40,6 @@ jobs:
 
       - name: Fetch Nginx Source and Update Changelog
         run: |
-          apt-get build-dep -y nginx
           apt-get source nginx
           cd nginx-*/
           export DEBFULLNAME="Nginx Packaging"
@@ -53,6 +52,7 @@ jobs:
 
       - name: Run dpkg-buildpackage
         run: |
+          ls -lah
           cd nginx-*/
           dpkg-buildpackage -rfakeroot -uc -b -j$(nproc)
 

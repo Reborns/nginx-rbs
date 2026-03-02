@@ -75,3 +75,12 @@ jobs:
           tag_name: "bookworm-${{ github.run_id }}"
           files: ./*.deb
           name: "Nginx Bookworm Build"
+          
+      - name: Upload DEB to Host
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.REPO_HOST }}
+          username: ${{ secrets.REPO_USER }}
+          key: ${{ secrets.REPO_SSH_KEY }}
+          source: "./*.deb"
+          target: "/tmp/nginx-build-${{ github.run_id }}"

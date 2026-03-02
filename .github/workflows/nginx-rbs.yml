@@ -16,30 +16,33 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Install Debian Build Stack (Source Fix)
+      - name: Install Debian Build Stack (Total Wipe Fix)
         run: |
-          # 1. DELETE the 'ghost' config file causing the 404 in newer Debian images
-          rm -f /etc/apt/sources.list.d/debian.sources
+          # 1. STOP: Do not run apt-get update yet.
+          # 2. Kill all 'ghost' configs in the sidecar directory and main file.
           rm -rf /etc/apt/sources.list.d/*
-
-          # 2. Re-create main sources with the MANDATORY /debian/ path
-          # Using HTTP first to install HTTPS support, then switching to HTTPS
-          echo "deb http://deb.debian.org ${{ matrix.debian_version }} main" > /etc/apt/sources.list
-          echo "deb-src http://deb.debian.org ${{ matrix.debian_version }} main" >> /etc/apt/sources.list
+          echo "" > /etc/apt/sources.list
           
-          # 3. Add Security (Bookworm uses debian-security, Trixie uses main repo)
+          # 3. Write ONLY the confirmed canonical paths with the REQUIRED /debian/ suffix.
           if [ "${{ matrix.debian_version }}" = "bookworm" ]; then
-            echo "deb http://deb.debian.org bookworm-security main" >> /etc/apt/sources.list
-            echo "deb-src http://deb.debian.org bookworm-security main" >> /etc/apt/sources.list
+            cat <<EOF > /etc/apt/sources.list
+          deb http://deb.debian.org bookworm main
+          deb-src http://deb.debian.org bookworm main
+          deb http://deb.debian.org bookworm-updates main
+          deb-src http://deb.debian.org bookworm-updates main
+          deb http://deb.debian.org bookworm-security main
+          deb-src http://deb.debian.org bookworm-security main
+          EOF
+          else
+            # Trixie (Testing) uses a simplified repo structure
+            cat <<EOF > /etc/apt/sources.list
+          deb http://deb.debian.org trixie main
+          deb-src http://deb.debian.org trixie main
+          EOF
           fi
 
-          # 4. Install HTTPS transport and CA certs
+          # 4. Now, and only now, we update.
           apt-get update
-          apt-get install -y ca-certificates apt-transport-https
-          sed -i 's/http:/https:/g' /etc/apt/sources.list
-          apt-get update
-
-          # 6. Install full build environment
           apt-get install -y dpkg-dev devscripts debhelper fakeroot ruby ruby-dev \
           build-essential libcurl4-openssl-dev libssl-dev zlib1g-dev git wget
 
@@ -51,11 +54,10 @@ jobs:
       - name: Build Passenger Dynamic Module (Parallel)
         run: |
           gem install passenger 
-          # Robust path detection for Ruby 3.1 vs 3.3
           PASSENGER_ROOT=$(gem env gemdir)/gems/$(gem list passenger | grep passenger | head -n 1 | awk '{print $1 "-" $2}' | tr -d '()')
           PASSENGER_SRC="$PASSENGER_ROOT/src/nginx_module"
           
-          # Speed up with all available cores
+          # Parallel build using all available CPU cores
           cd "$PASSENGER_SRC" && rake nginx:as_dynamic_module CACHING=false -j$(nproc)
           
           echo "PASSENGER_PATH=$PASSENGER_SRC" >> $GITHUB_ENV
@@ -73,7 +75,7 @@ jobs:
           ORIG_VERSION=$(dpkg-parsechangelog -S Version)
           NEW_VERSION="${ORIG_VERSION}~rbs~${{ matrix.debian_version }}"
           
-          # dch automatically handles the timestamp replacement
+          # dch replaces version and timestamp automatically
           dch --newversion "$NEW_VERSION" \
               --distribution "${{ matrix.debian_version }}" \
               --force-distribution \

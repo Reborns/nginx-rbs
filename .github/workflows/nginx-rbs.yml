@@ -18,30 +18,6 @@ jobs:
 
       - name: Install Debian Build Stack (Total Wipe Fix)
         run: |
-          # 1. STOP: Do not run apt-get update yet.
-          # 2. Kill all 'ghost' configs in the sidecar directory and main file.
-          rm -rf /etc/apt/sources.list.d/*
-          echo "" > /etc/apt/sources.list
-          
-          # 3. Write ONLY the confirmed canonical paths with the REQUIRED /debian/ suffix.
-          if [ "${{ matrix.debian_version }}" = "bookworm" ]; then
-            cat <<EOF > /etc/apt/sources.list
-          deb http://deb.debian.org bookworm main
-          deb-src http://deb.debian.org bookworm main
-          deb http://deb.debian.org bookworm-updates main
-          deb-src http://deb.debian.org bookworm-updates main
-          deb http://deb.debian.org bookworm-security main
-          deb-src http://deb.debian.org bookworm-security main
-          EOF
-          else
-            # Trixie (Testing) uses a simplified repo structure
-            cat <<EOF > /etc/apt/sources.list
-          deb http://deb.debian.org trixie main
-          deb-src http://deb.debian.org trixie main
-          EOF
-          fi
-
-          # 4. Now, and only now, we update.
           apt-get update
           apt-get install -y dpkg-dev devscripts debhelper fakeroot ruby ruby-dev \
           build-essential libcurl4-openssl-dev libssl-dev zlib1g-dev git wget

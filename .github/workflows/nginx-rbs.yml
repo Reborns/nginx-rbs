@@ -18,7 +18,11 @@ jobs:
 
       - name: Install Debian Build Stack
         run: |
-          # 1. Wipe and write fresh sources.list to solve the 404/Release file issue
+          # 1. DEVOPS FIX: Wipe all existing sources (main and directory) to kill 404 ghosts
+          rm -rf /etc/apt/sources.list.d/*
+          echo "" > /etc/apt/sources.list
+          
+          # 2. Reconstruct from scratch using correct absolute /debian/ paths
           cat <<EOF > /etc/apt/sources.list
           deb http://deb.debian.org ${{ matrix.debian_version }} main
           deb-src http://deb.debian.org ${{ matrix.debian_version }} main
@@ -26,33 +30,36 @@ jobs:
           deb-src http://deb.debian.org ${{ matrix.debian_version }}-updates main
           EOF
 
-          # 2. Add Security repos (Logic differs between Stable and Testing)
+          # 3. Handle Security repos (Trixie/Testing uses main repo for security)
           if [ "${{ matrix.debian_version }}" = "bookworm" ]; then
             cat <<EOF >> /etc/apt/sources.list
-            deb http://security.debian.org bookworm-security main
-            deb-src http://security.debian.org bookworm-security main
+            deb http://deb.debian.org-security bookworm-security main
+            deb-src http://deb.debian.org-security bookworm-security main
           EOF
           fi
 
-          # 3. Update and install build-essential tools
+          # 4. Clean and Update
+          apt-get clean
           apt-get update -y
+          
+          # 5. Install build tools
           apt-get install -y dpkg-dev devscripts debhelper fakeroot ruby ruby-dev \
           build-essential libcurl4-openssl-dev libssl-dev zlib1g-dev git wget
 
       - name: Clone Fresh Modules
         run: |
           mkdir -p /opt/nginx-modules
-          # Explicit target path as you requested to ensure build predictability
-          git clone --single-branch --depth 1 https://github.com/nginx/njs.git /opt/nginx-modules/njs
+          # Explicit target path for build predictability
+          git clone --single-branch --depth 1 https://github.com /opt/nginx-modules/njs
 
       - name: Build Passenger Dynamic Module (Parallel)
         run: |
           gem install passenger 
-          # Robust path detection for varying Ruby versions (3.1 vs 3.3)
+          # Robust path detection for Ruby 3.1 vs 3.3
           PASSENGER_ROOT=$(gem env gemdir)/gems/$(gem list passenger | grep passenger | head -n 1 | awk '{print $1 "-" $2}' | tr -d '()')
           PASSENGER_SRC="$PASSENGER_ROOT/src/nginx_module"
           
-          # Maximize speed with all available CPU cores
+          # Parallel build using all available CPU cores
           cd "$PASSENGER_SRC" && rake nginx:as_dynamic_module CACHING=false -j$(nproc)
           
           # Pass path to Nginx build environment
@@ -67,25 +74,25 @@ jobs:
           export DEBFULLNAME="Nginx Packaging"
           export DEBEMAIL="nginx-packaging@f5.com"
           
-          # Version: 1.29.5-1~rbs~trixie
+          # Logic for: 1.29.5-1~rbs~trixie
           ORIG_VERSION=$(dpkg-parsechangelog -S Version)
           NEW_VERSION="${ORIG_VERSION}~rbs~${{ matrix.debian_version }}"
           
-          # dch generates the entry and current timestamp automatically
+          # dch replaces version and timestamp automatically
           dch --newversion "$NEW_VERSION" \
               --distribution "${{ matrix.debian_version }}" \
               --force-distribution \
               --force-bad-version \
               "Automated build for version $ORIG_VERSION by RBS."
 
-          # Apply your custom rules file
+          # Inject your custom rules file
           cp ../rules-rbs debian/rules
           chmod +x debian/rules
 
       - name: Run dpkg-buildpackage (High Speed)
         run: |
           cd nginx-*/
-          # -j$(nproc) ensures Nginx also compiles using all cores
+          # -j$(nproc) utilizes all cores for compilation
           dpkg-buildpackage -rfakeroot -uc -b -j$(nproc)
 
       - name: Upload .deb Artifacts

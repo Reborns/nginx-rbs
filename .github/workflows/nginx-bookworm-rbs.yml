@@ -68,13 +68,6 @@ jobs:
           cd nginx-*/
           DEB_BUILD_OPTIONS=terse dpkg-buildpackage -rfakeroot -uc -b -j$(nproc)
           rm -r ../nginx-dbg*
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: "bookworm-${{ github.run_id }}"
-          files: ./*.deb
-          name: "Nginx Bookworm Build"
           
       - name: Upload DEB to Schizoid Host
         uses: appleboy/scp-action@v0.1.7
@@ -84,6 +77,7 @@ jobs:
           key: ${{ secrets.REPO_SSH_KEY }}
           source: "./*.deb"
           target: "/tmp/nginx-build-${{ github.run_id }}"
+          
       - name: Import to OpenRepo (bookworm)
         uses: appleboy/ssh-action@v1.0.3
         with:

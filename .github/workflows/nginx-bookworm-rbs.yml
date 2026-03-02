@@ -55,7 +55,7 @@ jobs:
           NEW_VERSION="${ORIG_VERSION}~rbs~bookworm"
           dch --newversion "$NEW_VERSION" --distribution "bookworm" --force-distribution --force-bad-version "Build for version $ORIG_VERSION by RBS."
           cp ../rules-bookworm debian/rules
-          cp ../passenger.conf.example devian/passenger.conf
+          cp ../passenger.conf.example debian/passenger.conf
           sed -i 's/^[ ]\+/\t/g' debian/rules
           cat -A debian/rules | head -n 50 | grep '\^I' || echo "Warning: No tabs found!"
           chmod +x debian/rules

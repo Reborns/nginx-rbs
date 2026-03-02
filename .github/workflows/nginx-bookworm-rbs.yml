@@ -14,7 +14,7 @@ jobs:
       - name: Install Debian Build Stack
         run: |
           apt-get -qq update
-          apt-get -qq install -y curl gnupg2 ca-certificates lsb-release debian-archive-keyring > /dev/null
+          DEBIAN_FRONTEND=noninteractive apt-get -qq install -y curl gnupg2 ca-certificates lsb-release debian-archive-keyring > /dev/null
           curl https://nginx.org/keys/nginx_signing.key | gpg --dearmor \
           | tee /usr/share/keyrings/nginx-archive-keyring.gpg >/dev/null
           cat <<EOF > /etc/apt/sources.list.d/nginx.list
@@ -22,7 +22,7 @@ jobs:
           deb-src [signed-by=/usr/share/keyrings/nginx-archive-keyring.gpg] http://nginx.org/packages/mainline/debian bookworm nginx
           EOF
           apt-get -qq update 
-          apt-get -qq install -y dpkg-dev devscripts debhelper fakeroot ruby ruby-dev \
+          DEBIAN_FRONTEND=noninteractive apt-get -qq install -y dpkg-dev devscripts debhelper fakeroot ruby ruby-dev \
           build-essential libcurl4-openssl-dev libssl-dev zlib1g-dev git wget > /dev/null
 
       - name: Clone Fresh Modules

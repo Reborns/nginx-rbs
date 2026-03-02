@@ -22,13 +22,13 @@ jobs:
           deb-src [signed-by=/usr/share/keyrings/nginx-archive-keyring.gpg] http://nginx.org/packages/mainline/debian bookworm nginx
           EOF
           apt-get -qq update 
-          DEBIAN_FRONTEND=noninteractive apt-get -qq install -y dpkg-dev devscripts debhelper fakeroot ruby ruby-dev \
+          DEBIAN_FRONTEND=noninteractive apt-get -qq install -y dpkg-dev devscripts debhelper fakeroot ruby ruby-dev libxslt-dev \
           build-essential quilt libpcre2-dev libcurl4-openssl-dev libssl-dev zlib1g-dev git wget libmaxminddb-dev > /dev/null
 
       - name: Clone Fresh Modules
         run: |
           mkdir -p /opt/nginx-modules
-          wget -q --show-progress -c https://github.com/openssl/openssl/releases/download/openssl-3.6.1/openssl-3.6.1.tar.gz  -O - | tar -xz -C /opt/nginx-modules/
+          wget -q -c https://github.com/openssl/openssl/releases/download/openssl-3.6.1/openssl-3.6.1.tar.gz  -O - | tar -xz -C /opt/nginx-modules/
           git clone -q --single-branch --depth 1 https://github.com/nginx/njs.git /opt/nginx-modules/nginx_njs
           git clone -q --single-branch --depth 1 https://github.com/openresty/headers-more-nginx-module.git /opt/nginx-modules/nginx_headers_more_module
           git clone -q --single-branch --depth 1 https://github.com/arut/nginx-dav-ext-module.git /opt/nginx-modules/nginx_dav_ext_module

@@ -21,7 +21,7 @@ jobs:
           deb [signed-by=/usr/share/keyrings/nginx-archive-keyring.gpg] http://nginx.org/packages/mainline/debian bookworm nginx
           deb-src [signed-by=/usr/share/keyrings/nginx-archive-keyring.gpg] http://nginx.org/packages/mainline/debian bookworm nginx
           EOF
-          pt-get update
+          apt-get update
           DEBIAN_FRONTEND=noninteractive apt-get install -qq -y dpkg-dev devscripts debhelper fakeroot ruby ruby-dev \
           build-essential libcurl4-openssl-dev libssl-dev zlib1g-dev git wget
 

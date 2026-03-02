@@ -32,7 +32,7 @@ jobs:
           git clone -q --single-branch --depth 1 https://github.com/nginx/njs.git /opt/nginx-modules/nginx_njs
           git clone -q --single-branch --depth 1 https://github.com/openresty/headers-more-nginx-module.git /opt/nginx-modules/nginx_headers_more_module
           git clone -q --single-branch --depth 1 https://github.com/arut/nginx-dav-ext-module.git /opt/nginx-modules/nginx_dav_ext_module
-          git clone -q --single-branch --depth 1 https://bitbucket.org/nginx-goodies/nginx-sticky-module-ng.git /opt/nginx-modules/nginx_sticky_module
+          git clone -q --single-branch --depth 1 https://github.com/fabianofurtado/nginx_sticky_module_ng.git /opt/nginx-modules/nginx_sticky_module
           git clone -q --single-branch --depth 1 https://github.com/vozlt/nginx-module-vts.git /opt/nginx-modules/nginx_module_vts
           git clone -q --single-branch --depth 1 https://github.com/leev/ngx_http_geoip2_module.git /opt/nginx-modules/nginx_http_geoip2_module
           git clone -q --single-branch --depth 1 https://github.com/TeslaGov/ngx-http-auth-jwt-module.git /opt/nginx-modules/nginx-http-auth-jwt-module

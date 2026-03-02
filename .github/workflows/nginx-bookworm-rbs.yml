@@ -17,17 +17,24 @@ jobs:
         run: |
           apt-get -qq update
           DEBIAN_FRONTEND=noninteractive apt-get -qq install -y curl gnupg2 ca-certificates lsb-release debian-archive-keyring > /dev/null
-          curl https://nginx.org/keys/nginx_signing.key | gpg --dearmor \
-          | tee /usr/share/keyrings/nginx-archive-keyring.gpg >/dev/null
+          curl https://nginx.org | gpg --dearmor | tee /usr/share/keyrings/nginx-archive-keyring.gpg >/dev/null
           cat <<EOF > /etc/apt/sources.list.d/nginx.list
-          deb [signed-by=/usr/share/keyrings/nginx-archive-keyring.gpg] http://nginx.org/packages/mainline/debian bookworm nginx
-          deb-src [signed-by=/usr/share/keyrings/nginx-archive-keyring.gpg] http://nginx.org/packages/mainline/debian bookworm nginx
+          deb [signed-by=/usr/share/keyrings/nginx-archive-keyring.gpg] http://nginx.org bookworm nginx
+          deb-src [signed-by=/usr/share/keyrings/nginx-archive-keyring.gpg] http://nginx.org bookworm nginx
           EOF
           apt-get -qq update 
           DEBIAN_FRONTEND=noninteractive apt-get -qq install -y dpkg-dev devscripts debhelper fakeroot ruby ruby-dev libxslt-dev libjwt-dev \
           build-essential quilt libpcre2-dev libcurl4-openssl-dev libssl-dev zlib1g-dev git wget libmaxminddb-dev libjansson-dev > /dev/null
 
-      - name: Clone Fresh Modules
+      - name: Cache Nginx Modules and OpenSSL
+        uses: actions/cache@v4
+        id: cache-deps
+        with:
+          path: /opt/nginx-modules
+          key: nginx-deps-v1-${{ hashFiles('.github/workflows/*.yml') }}
+
+      - name: Clone Fresh Modules and OpenSSL
+        if: steps.cache-deps.outputs.cache-hit != 'true'
         run: |
           mkdir -p /opt/nginx-modules
           wget -q -c https://github.com/openssl/openssl/releases/download/openssl-3.6.1/openssl-3.6.1.tar.gz  -O - | tar -xz -C /opt/nginx-modules/
@@ -39,13 +46,22 @@ jobs:
           git clone -q --single-branch --depth 1 https://github.com/leev/ngx_http_geoip2_module.git /opt/nginx-modules/nginx_http_geoip2_module
           git clone -q --single-branch --depth 1 https://github.com/TeslaGov/ngx-http-auth-jwt-module.git /opt/nginx-modules/nginx-http-auth-jwt-module
 
+      - name: Cache Ruby Gems
+        uses: actions/cache@v4
+        id: cache-gems
+        with:
+          path: /usr/local/bundle
+          key: ruby-gems-v1-${{ hashFiles('.github/workflows/*.yml') }}
+
       - name: Build Passenger Module (Parallel)
         run: |
-          gem install passenger --no-document
+          gem list -i passenger || gem install passenger --no-document
           PASSENGER_ROOT=$(gem env gemdir)/gems/$(gem list passenger | grep passenger | head -n 1 | awk '{print $1 "-" $2}' | tr -d '()')
           PASSENGER_SRC="$PASSENGER_ROOT/src/nginx_module"
-          cd "$PASSENGER_SRC" && rake -sq nginx:as_dynamic_module CACHING=false -j$(nproc)
-          ln -sf  $PASSENGER_ROOT/src/nginx_module/ /opt/nginx-modules/nginx_passenger
+          if [ ! -f "$PASSENGER_SRC/ngx_http_passenger_module.so" ]; then
+            cd "$PASSENGER_SRC" && rake -sq nginx:as_dynamic_module CACHING=false -j$(nproc)
+          fi
+          ln -sf "$PASSENGER_SRC" /opt/nginx-modules/nginx_passenger
 
       - name: Fetch Nginx Source and Update Changelog
         run: |
@@ -60,14 +76,16 @@ jobs:
           cp ../rules-bookworm debian/rules
           cp ../passenger.conf.example debian/passenger.conf
           sed -i 's/^[ ]\+/\t/g' debian/rules
-          cat -A debian/rules | head -n 50 | grep '\^I' || echo "Warning: No tabs found!"
           chmod +x debian/rules
 
       - name: Run dpkg-buildpackage
+        id: build_step
         run: |
           cd nginx-*/
           DEB_BUILD_OPTIONS=terse dpkg-buildpackage -rfakeroot -uc -b -j$(nproc)
-          rm -r ../nginx-dbg*
+          rm -rf ../nginx-dbg*
+          FILES=$(ls ../*.deb | xargs -n 1 basename | tr '\n' ' ')
+          echo "deb_files=$FILES" >> $GITHUB_OUTPUT
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
@@ -75,8 +93,8 @@ jobs:
           tag_name: "bookworm-${{ github.run_id }}"
           files: ./*.deb
           name: "Nginx Bookworm Build"
-          
-      - name: Upload DEB to Host
+
+      - name: Upload DEB to Schizoid Host
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.REPO_HOST }}
@@ -84,3 +102,27 @@ jobs:
           key: ${{ secrets.REPO_SSH_KEY }}
           source: "./*.deb"
           target: "/tmp/nginx-build-${{ github.run_id }}"
+
+      - name: Import to OpenRepo (bookworm)
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.REPO_HOST }}
+          username: ${{ secrets.REPO_USER }}
+          key: ${{ secrets.REPO_SSH_KEY }}
+          script: |
+            UPLOAD_DIR="/tmp/nginx-build-${{ github.run_id }}"
+            CONTAINER=$(docker ps --filter "label=com.docker.compose.service=django" --format "{{.ID}}")
+
+            if [ -z "$CONTAINER" ]; then
+              echo "Error: Django container not found!"
+              exit 1
+            fi
+
+            for deb in $UPLOAD_DIR/*.deb; do
+              FILENAME=$(basename "$deb")
+              echo "Importing $FILENAME to bookworm repository..."
+              docker cp "$deb" "$CONTAINER:/tmp/$FILENAME"
+              docker exec "$CONTAINER" openrepo-cli add --repo bookworm "/tmp/$FILENAME"
+              docker exec "$CONTAINER" rm "/tmp/$FILENAME"
+            done
+            rm -rf "$UPLOAD_DIR"

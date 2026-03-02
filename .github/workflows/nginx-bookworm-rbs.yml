@@ -67,7 +67,7 @@ jobs:
         run: |
           cd nginx-*/
           DEB_BUILD_OPTIONS=terse dpkg-buildpackage -rfakeroot -uc -b -j$(nproc)
-          rm -r nginx-dbg*
+          rm -r nginx-dbg**
 
       - name: Create Release
         uses: softprops/action-gh-release@v2

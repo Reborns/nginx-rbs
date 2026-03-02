@@ -48,7 +48,7 @@ jobs:
           cd nginx-*/
           
           ORIG_VERSION=$(dpkg-parsechangelog -S Version)
-          NEW_VERSION="${ORIG_VERSION}~rbs~${{ matrix.debian_version }}"
+          NEW_VERSION="${ORIG_VERSION}+rbs~${{ matrix.debian_version }}"
           
           export DEBFULLNAME="Nginx Packaging"
           export DEBEMAIL="nginx-packaging@f5.com"
@@ -56,7 +56,8 @@ jobs:
           dch --newversion "$NEW_VERSION" \
               --distribution "${{ matrix.debian_version }}" \
               --force-distribution \
-              "Automated build with latest Passenger and NJS."
+              --force-bad-version \
+              "Custom NginX build by RBS."
 
           # Ensure your 'my-custom-rules' file exists in your repo root
           cp ../rules-rbs debian/rules

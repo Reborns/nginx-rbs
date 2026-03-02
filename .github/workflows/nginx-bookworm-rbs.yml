@@ -25,7 +25,7 @@ jobs:
           deb-src [signed-by=/usr/share/keyrings/nginx-archive-keyring.gpg] http://nginx.org/packages/mainline/debian bookworm nginx
           EOF
           curl https://nginx.org/keys/nginx_signing.key | gpg --dearmor \
-          | sudo tee /usr/share/keyrings/nginx-archive-keyring.gpg >/dev/null
+          | tee /usr/share/keyrings/nginx-archive-keyring.gpg >/dev/null
           apt-get update
           apt-get install -y dpkg-dev devscripts debhelper fakeroot ruby ruby-dev \
           curl gnupg2 ca-certificates lsb-release debian-archive-keyring \

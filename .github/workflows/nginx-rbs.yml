@@ -46,11 +46,11 @@ jobs:
           apt-get install -y dpkg-dev devscripts debhelper fakeroot ruby ruby-dev \
           build-essential libcurl4-openssl-dev libssl-dev zlib1g-dev git wget
 
-      - name: Clone Fresh Modules
+      - name: Clone Nginx Modules
         run: |
           mkdir -p /opt/nginx-modules
           # Explicit target path for build predictability
-          git clone --single-branch --depth 1 https://github.com /opt/nginx-modules/njs
+          git clone --single-branch --depth 1 https://github.com/nginx/njs.git /opt/nginx-modules/njs
 
       - name: Build Passenger Dynamic Module (Parallel)
         run: |

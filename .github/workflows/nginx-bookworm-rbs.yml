@@ -4,7 +4,8 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+   # runs-on: ubuntu-latest
+    runs-on: build-server
     permissions:
       contents: write
     container: debian:bookworm

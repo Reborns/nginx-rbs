@@ -1,0 +1,83 @@
+name: Build Nginx Bullseye
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    container: debian:bullseye
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Debian Build Stack
+        run: |
+          apt-get -qq update
+          DEBIAN_FRONTEND=noninteractive apt-get -qq install -y curl gnupg2 ca-certificates lsb-release debian-archive-keyring > /dev/null
+          curl https://nginx.org/keys/nginx_signing.key | gpg --dearmor \
+          | tee /usr/share/keyrings/nginx-archive-keyring.gpg >/dev/null
+          cat <<EOF > /etc/apt/sources.list.d/nginx.list
+          deb [signed-by=/usr/share/keyrings/nginx-archive-keyring.gpg] http://nginx.org/packages/mainline/debian bullseye nginx
+          deb-src [signed-by=/usr/share/keyrings/nginx-archive-keyring.gpg] http://nginx.org/packages/mainline/debian bullseye nginx
+          EOF
+          apt-get -qq update 
+          DEBIAN_FRONTEND=noninteractive apt-get -qq install -y dpkg-dev devscripts debhelper fakeroot ruby ruby-dev libxslt-dev libjwt-dev \
+          build-essential quilt libpcre2-dev libcurl4-openssl-dev libssl-dev zlib1g-dev git wget libmaxminddb-dev libjansson-dev > /dev/null
+
+      - name: Clone Fresh Modules
+        run: |
+          mkdir -p /opt/nginx-modules
+          wget -q -c https://github.com/openssl/openssl/releases/download/openssl-3.6.1/openssl-3.6.1.tar.gz  -O - | tar -xz -C /opt/nginx-modules/
+          git clone -q --single-branch --depth 1 https://github.com/nginx/njs.git /opt/nginx-modules/nginx_njs
+          git clone -q --single-branch --depth 1 https://github.com/openresty/headers-more-nginx-module.git /opt/nginx-modules/nginx_headers_more_module
+          git clone -q --single-branch --depth 1 https://github.com/arut/nginx-dav-ext-module.git /opt/nginx-modules/nginx_dav_ext_module
+          git clone -q --single-branch --depth 1 https://github.com/fabianofurtado/nginx_sticky_module_ng.git /opt/nginx-modules/nginx_sticky_module
+          git clone -q --single-branch --depth 1 https://github.com/vozlt/nginx-module-vts.git /opt/nginx-modules/nginx_module_vts
+          git clone -q --single-branch --depth 1 https://github.com/leev/ngx_http_geoip2_module.git /opt/nginx-modules/nginx_http_geoip2_module
+          git clone -q --single-branch --depth 1 https://github.com/TeslaGov/ngx-http-auth-jwt-module.git /opt/nginx-modules/nginx-http-auth-jwt-module
+
+      - name: Build Passenger Module (Parallel)
+        run: |
+          gem install passenger --no-document
+          PASSENGER_ROOT=$(gem env gemdir)/gems/$(gem list passenger | grep passenger | head -n 1 | awk '{print $1 "-" $2}' | tr -d '()')
+          PASSENGER_SRC="$PASSENGER_ROOT/src/nginx_module"
+          cd "$PASSENGER_SRC" && rake -sq nginx:as_dynamic_module CACHING=false -j$(nproc)
+          ln -sf  $PASSENGER_ROOT/src/nginx_module/ /opt/nginx-modules/nginx_passenger
+
+      - name: Fetch Nginx Source and Update Changelog
+        run: |
+          apt-get source nginx
+          cd nginx-*/
+          export DEBFULLNAME="Nginx Packaging"
+          export DEBEMAIL="nginx-packaging@f5.com"
+          RAW_VERSION=$(dpkg-parsechangelog -S Version)
+          BASE_VERSION="${RAW_VERSION%~bullseye}"
+          NEW_VERSION="${BASE_VERSION}~rbs~bullseye"
+          dch --newversion "$NEW_VERSION" --distribution "bullseye" --force-distribution --force-bad-version "Build for version $ORIG_VERSION by RBS."
+          cp ../rules-bullseye debian/rules
+          rm -rf debian/files
+          cp ../passenger.conf.example debian/passenger.conf.example
+          sed -i '/Package: nginx-dbg/,/^$/d' debian/control
+          sed -i '/build-nginx-debug/,/^$/d' debian/nginx.install
+          sed -i 's/^[ ]\+/\t/g' debian/rules
+          cat -A debian/rules | head -n 50 | grep '\^I' || echo "Warning: No tabs found!"
+          chmod +x debian/rules
+          # Download and install OpenRepo CLI
+          curl -L https://github.com/openkilt/openrepo/releases/download/v1.0.0/openrepo_cli_$(uname -m) -o /usr/local/bin/openrepo
+          chmod +x /usr/local/bin/openrepo
+
+      - name: Run dpkg-buildpackage
+        run: |
+          cd nginx-*/
+          DEB_BUILD_OPTIONS=terse dpkg-buildpackage -rfakeroot -uc -b -j$(nproc)
+          
+      - name: Upload to OpenRepo
+        run: |
+          for deb in *.deb; do
+            echo "Uploading $deb to OpenRepo..."
+            openrepo -k "${{ secrets.OPENREPO_KEY }}" -s "${{ secrets.OPENREPO_HOST }}" upload -r bullseye -o "$deb"
+          done
+            rm -rf "$UPLOAD_DIR"

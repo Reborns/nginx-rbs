@@ -79,7 +79,7 @@ jobs:
           DEB_BUILD_OPTIONS=terse dpkg-buildpackage -rfakeroot -uc -us -b -j$(nproc)
       
       - name: Upload DEB to Schizoid Host
-        uses: appleboy/scp-action@v0.1.7
+        uses: appleboy/scp-action@v1.0.0
         with:
           host: ${{ secrets.REPO_HOST }}
           username: ${{ secrets.REPO_USER }}
@@ -89,7 +89,7 @@ jobs:
           overwrite: true 
    
       - name: Set Permissions on Remote Host
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ secrets.REPO_HOST }}
           username: ${{ secrets.REPO_USER }}

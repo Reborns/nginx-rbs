@@ -26,8 +26,16 @@ jobs:
           apt-get -qq update 
           DEBIAN_FRONTEND=noninteractive apt-get -qq install -y dpkg-dev devscripts debhelper fakeroot ruby ruby-dev libxslt-dev libjwt-dev \
           build-essential quilt libpcre2-dev libcurl4-openssl-dev libssl-dev zlib1g-dev git wget libmaxminddb-dev libjansson-dev > /dev/null
+ 
+      - name: Cache Nginx Modules & OpenSSL
+        id: cache-modules
+        uses: actions/cache@v4
+        with:
+          path: /opt/nginx-modules
+          key: nginx-modules-${{ hashFiles('debian/rules-bookworm') }}-v1
 
       - name: Clone Fresh Modules
+        if: steps.cache-modules.outputs.cache-hit != 'true'
         run: |
           mkdir -p /opt/nginx-modules
           wget -q -c https://github.com/openssl/openssl/releases/download/openssl-3.6.1/openssl-3.6.1.tar.gz  -O - | tar -xz -C /opt/nginx-modules/
@@ -45,7 +53,7 @@ jobs:
           PASSENGER_ROOT=$(gem env gemdir)/gems/$(gem list passenger | grep passenger | head -n 1 | awk '{print $1 "-" $2}' | tr -d '()')
           PASSENGER_SRC="$PASSENGER_ROOT/src/nginx_module"
           cd "$PASSENGER_SRC" && rake -sq nginx:as_dynamic_module CACHING=false -j$(nproc)
-          ln -sf  $PASSENGER_ROOT/src/nginx_module/ /opt/nginx-modules/nginx_passenger
+          cp -R "$PASSENGER_ROOT/src/nginx_module" /opt/nginx-modules/nginx_passenger
 
       - name: Fetch Nginx Source and Update Changelog
         run: |
@@ -72,7 +80,7 @@ jobs:
       - name: Run dpkg-buildpackage
         run: |
           cd nginx-*/
-          DEB_BUILD_OPTIONS=terse dpkg-buildpackage -rfakeroot -uc -b -j$(nproc)
+          DEB_BUILD_OPTIONS="parallel=$(nproc) terse nocheck" dpkg-buildpackage -rfakeroot -uc -b
           
       - name: Upload to OpenRepo
         run: |

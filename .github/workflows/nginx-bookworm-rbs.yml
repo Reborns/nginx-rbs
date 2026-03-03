@@ -61,6 +61,7 @@ jobs:
           rm -rf debian/files
           cp ../passenger.conf.example debian/passenger.conf
           sed -i '/Package: nginx-dbg/,/^$/d' debian/control
+          sed -i '/build-nginx-debug/,/^$/d' debian/nginx.install
           sed -i 's/^[ ]\+/\t/g' debian/rules
           cat -A debian/rules | head -n 50 | grep '\^I' || echo "Warning: No tabs found!"
           chmod +x debian/rules

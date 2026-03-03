@@ -3,12 +3,20 @@ on:
   workflow_dispatch:
 
 jobs:
+  get-latest-openssl-version:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get Latest OpenSSL Version
+        id: openssl_version
+        run: |
+          # Scrape the official source page for the latest tarball version
+          VERSION=$(curl -s https://openssl-library.org/source/ | grep -oP 'openssl-\K[0-9]+\.[0-9]+\.[0-9]+(?=\.tar\.gz)' | head -n 1)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
   build:
     runs-on: ubuntu-latest
     permissions:
       contents: write
     container: debian:bookworm
-
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -30,7 +38,7 @@ jobs:
       - name: Clone Fresh Modules
         run: |
           mkdir -p /opt/nginx-modules
-          wget -q -c https://github.com/openssl/openssl/releases/download/openssl-3.6.1/openssl-3.6.1.tar.gz  -O - | tar -xz -C /opt/nginx-modules/
+          wget -q -c https://github.com/openssl/openssl/releases/download/openssl-"${{ steps.openssl_version.outputs.version }}"/openssl-"${{ steps.openssl_version.outputs.version }}".tar.gz  -O - | tar -xz -C /opt/nginx-modules/
           git clone -q --single-branch --depth 1 https://github.com/nginx/njs.git /opt/nginx-modules/nginx_njs
           git clone -q --single-branch --depth 1 https://github.com/openresty/headers-more-nginx-module.git /opt/nginx-modules/nginx_headers_more_module
           git clone -q --single-branch --depth 1 https://github.com/arut/nginx-dav-ext-module.git /opt/nginx-modules/nginx_dav_ext_module

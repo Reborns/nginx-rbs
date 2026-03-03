@@ -1,0 +1,18 @@
+name: Build Nginx Bookworm
+on:
+  workflow_dispatch:
+
+jobs:
+  check-version:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get Latest OpenSSL Version
+        id: openssl_version
+        run: |
+          # Scrape the official source page for the latest tarball version
+          VERSION=$(curl -s https://openssl-library.org/source/ | grep -oP 'openssl-\K[0-9]+\.[0-9]+\.[0-9]+(?=\.tar\.gz)' | head -n 1)
+          echo "Latest version is $VERSION"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Use Version
+        run: echo "The latest version found was ${{ steps.openssl_version.outputs.version }}"

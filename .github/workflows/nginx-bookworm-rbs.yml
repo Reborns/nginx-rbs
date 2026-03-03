@@ -3,15 +3,6 @@ on:
   workflow_dispatch:
 
 jobs:
-  get-latest-openssl-version:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Get Latest OpenSSL Version
-        id: openssl_version
-        run: |
-          # Scrape the official source page for the latest tarball version
-          VERSION=$(curl -s https://openssl-library.org/source/ | grep -oP 'openssl-\K[0-9]+\.[0-9]+\.[0-9]+(?=\.tar\.gz)' | head -n 1)
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
   build:
     runs-on: ubuntu-latest
     permissions:
@@ -34,7 +25,12 @@ jobs:
           apt-get -qq update 
           DEBIAN_FRONTEND=noninteractive apt-get -qq install -y dpkg-dev devscripts debhelper fakeroot ruby ruby-dev libxslt-dev libjwt-dev \
           build-essential quilt libpcre2-dev libcurl4-openssl-dev libssl-dev zlib1g-dev git wget libmaxminddb-dev libjansson-dev > /dev/null
-
+    
+      - name: Get Latest OpenSSL Version
+        id: openssl_version
+        run: |
+          VERSION=$(curl -s https://openssl-library.org/source/ | grep -oP 'openssl-\K[0-9]+\.[0-9]+\.[0-9]+(?=\.tar\.gz)' | head -n 1)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
       - name: Clone Fresh Modules
         run: |
           mkdir -p /opt/nginx-modules

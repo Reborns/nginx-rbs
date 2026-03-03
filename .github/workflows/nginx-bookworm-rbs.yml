@@ -73,6 +73,15 @@ jobs:
         run: |
           cd nginx-*/
           DEB_BUILD_OPTIONS=terse dpkg-buildpackage -rfakeroot -uc -b -j$(nproc)
+      
+      - name: Upload DEB to Schizoid Host
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.REPO_HOST }}
+          username: ${{ secrets.REPO_USER }}
+          key: ${{ secrets.REPO_SSH_KEY }}
+          source: "./*.deb"
+          target: "/opt/www/downloads/utils/webservers/nginx/"     
           
       - name: Upload to OpenRepo
         run: |

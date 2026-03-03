@@ -72,7 +72,7 @@ jobs:
       - name: Run dpkg-buildpackage
         run: |
           cd nginx-*/
-          DEB_BUILD_OPTIONS=terse dpkg-buildpackage -rfakeroot -uc -b -j$(nproc)
+          DEB_BUILD_OPTIONS=terse dpkg-buildpackage -rfakeroot -uc -us -b -j$(nproc)
       
       - name: Upload DEB to Schizoid Host
         uses: appleboy/scp-action@v0.1.7
@@ -82,11 +82,20 @@ jobs:
           key: ${{ secrets.REPO_SSH_KEY }}
           source: "./*.deb"
           target: "/opt/www/downloads/utils/webservers/nginx/"     
-          
+   
+      - name: Set Permissions on Remote Host
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.REPO_HOST }}
+          username: ${{ secrets.REPO_USER }}
+          key: ${{ secrets.REPO_SSH_KEY }}
+          script: |
+            chmod 644 /opt/www/downloads/utils/webservers/nginx/*.deb
+            sudo chown www-data:www-data /opt/www/downloads/utils/webservers/nginx/*.deb      
+            
       - name: Upload to OpenRepo
         run: |
           for deb in *.deb; do
             echo "Uploading $deb to OpenRepo..."
             openrepo -k "${{ secrets.OPENREPO_KEY }}" -s "${{ secrets.OPENREPO_HOST }}" upload -r bookworm -o "$deb"
           done
-            rm -rf "$UPLOAD_DIR"

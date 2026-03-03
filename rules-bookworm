@@ -1,7 +1,6 @@
 #!/usr/bin/make -f
 
 #export DH_VERBOSE=1
-export DEB_BUILD_OPTIONS=parallel=$(shell nproc)
 include /usr/share/dpkg/vendor.mk
 ifeq ($(shell $(call dpkg_vendor_derives_from,ubuntu)),yes)
 DISTROREL_MAJOR := $(shell lsb_release -rs | cut -d. -f 1)
@@ -24,16 +23,8 @@ BUILDDIR_nginx = $(CURDIR)/debian/build-nginx
 INSTALLDIR = $(CURDIR)/debian/nginx
 BASEDIR = $(CURDIR)
 MODULESDIR = /opt/nginx-modules
-NUMJOBS = $(shell nproc)
 
-ifneq (,$(filter parallel=%,$(DEB_BUILD_OPTIONS)))
-        NUMJOBS = $(patsubst parallel=%,%,$(filter parallel=%,$(DEB_BUILD_OPTIONS)))
-        ifeq (${NUMJOBS}, 0)
-                NUMJOBS = 1
-        endif
-else
-        NUMJOBS = 1
-endif
+NUMJOBS = $(shell nproc)
 
 DO_PKGS = $(PKGS)
 
@@ -68,7 +59,7 @@ config.status.nginx: config.env.nginx
         --with-file-aio \
         --with-threads \
         --with-openssl=$(MODULESDIR)/openssl-3.6.1 \
-        --with-openssl-opt="enable-ktls threads -fPIC no-tests no-samples no-docs" \
+        --with-openssl-opt="enable-ktls threads -fPIC no-tests no-samples no-docs no-shared" \
         --add-module=$(MODULESDIR)/nginx_headers_more_module \
         --add-module=$(MODULESDIR)/nginx_dav_ext_module \
         --add-module=$(MODULESDIR)/nginx_sticky_module \

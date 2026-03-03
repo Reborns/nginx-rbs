@@ -87,7 +87,8 @@ jobs:
           username: ${{ secrets.REPO_USER }}
           key: ${{ secrets.REPO_SSH_KEY }}
           source: "./*.deb"
-          target: "/opt/www/downloads/utils/webservers/nginx/"     
+          target: "/opt/www/downloads/utils/webservers/nginx/"  
+          overwrite: true 
  
       - name: Set Permissions on Remote Host
         uses: appleboy/ssh-action@v1.0.3

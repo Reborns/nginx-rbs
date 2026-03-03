@@ -17,10 +17,9 @@ export DEB_LDFLAGS_MAINT_APPEND=-Wl,--as-needed -pie -DNGX_LINKED_LIST_COOKIES=1
 #DPKG_EXPORT_BUILDFLAGS = 1
 include /usr/share/dpkg/buildflags.mk
 
-PKGS = nginx nginx-dbg
+PKGS = nginx
 
 BUILDDIR_nginx = $(CURDIR)/debian/build-nginx
-BUILDDIR_nginx_debug = $(CURDIR)/debian/build-nginx-debug
 INSTALLDIR = $(CURDIR)/debian/nginx
 BASEDIR = $(CURDIR)
 MODULESDIR = /opt/nginx-modules
@@ -79,25 +78,16 @@ config.status.nginx: config.env.nginx
         --with-cc-opt="$(CFLAGS)" --with-ld-opt="$(LDFLAGS)"
         touch $@
 
-config.status.nginx_debug: config.env.nginx_debug
-        cd $(BUILDDIR_nginx_debug) && \
-        CFLAGS="" ./configure --prefix=/etc/nginx --sbin-path=/usr/sbin/nginx  --with-cc-opt="$(CFLAGS)" --with-ld-opt="$(LDFLAGS)" --with-debug
-        touch $@
-
 build-arch.%: config.status.%
         dh_testdir
         dh_prep
         $(MAKE) -j$(NUMJOBS) -C $(BUILDDIR_$*) build
 
-build-arch: build-arch.nginx build-arch.nginx_debug
+build-arch: build-arch.nginx
         dh_testdir
         touch $@
 
-build-dbg.%: install
-        dh_testdir
-        dh_strip --dbg-package=nginx-dbg
-
-build-dbg: build-dbg.nginx
+build-dbg:
         dh_testdir
         touch $@
 
@@ -119,9 +109,7 @@ clean:
         find $(CURDIR) -maxdepth 1 -size 0 -delete
 
 post-build:
-        mv $(BUILDDIR_nginx_debug)/objs/nginx $(BUILDDIR_nginx_debug)/objs/nginx-debug
         ln -s $(BUILDDIR_nginx)/objs $(CURDIR)/objs
-        cp $(BUILDDIR_nginx)/objs/nginx.8 $(BUILDDIR_nginx)/objs/nginx-debug.8
 
 install:
         dh_testdir
@@ -156,12 +144,6 @@ binary-indep: build post-build install
                 < debian/nginx.init.in > debian/nginx.init
         dh_installinit -i -pnginx --no-stop-on-upgrade --no-start --name=nginx
         dh_installsystemd -i -pnginx --name=nginx nginx.service
-        sed -e 's/%%PROVIDES%%/nginx-debug/g' \
-                -e 's/%%DEFAULTSTART%%//g' \
-                -e 's/%%DEFAULTSTOP%%/0 1 2 3 4 5 6/g' \
-                < debian/nginx.init.in > debian/nginx-debug.init
-        dh_installinit -i -pnginx --no-stop-on-upgrade --no-start --noscripts --name=nginx-debug
-        dh_installsystemd -i -pnginx --name=nginx-debug --no-enable nginx-debug.service
         dh_installlogrotate -i -pnginx --name=nginx
 
 binary-arch: install build-dbg

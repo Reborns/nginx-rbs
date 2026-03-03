@@ -105,5 +105,5 @@ jobs:
         run: |
           for deb in *.deb; do
             echo "Uploading $deb to OpenRepo..."
-            openrepo -k "${{ secrets.OPENREPO_KEY }}" -s "${{ secrets.OPENREPO_HOST }}" upload -r trixie -o "$deb"
+            openrepo -k ${{ secrets.OPENREPO_KEY }} -s ${{ secrets.OPENREPO_HOST }} upload -r trixie -o "$deb"
           done

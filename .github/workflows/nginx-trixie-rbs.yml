@@ -26,11 +26,17 @@ jobs:
           apt-get -qq update 
           DEBIAN_FRONTEND=noninteractive apt-get -qq install -y dpkg-dev devscripts debhelper fakeroot ruby ruby-dev libxslt-dev libjwt-dev \
           build-essential quilt libpcre2-dev libcurl4-openssl-dev libssl-dev zlib1g-dev git wget libmaxminddb-dev libjansson-dev > /dev/null
-
+     
+      - name: Get Latest OpenSSL Version
+        id: openssl_version
+        run: |
+          VERSION=$(curl -s https://openssl-library.org/source/ | grep -oP 'openssl-\K[0-9]+\.[0-9]+\.[0-9]+(?=\.tar\.gz)' | head -n 1)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+      
       - name: Clone Fresh Modules
         run: |
           mkdir -p /opt/nginx-modules
-          wget -q -c https://github.com/openssl/openssl/releases/download/openssl-3.6.1/openssl-3.6.1.tar.gz  -O - | tar -xz -C /opt/nginx-modules/
+          wget -q -c https://github.com/openssl/openssl/releases/download/openssl-"${{ steps.openssl_version.outputs.version }}"/openssl-"${{ steps.openssl_version.outputs.version }}".tar.gz  -O - | tar -xz -C /opt/nginx-modules/
           git clone -q --single-branch --depth 1 https://github.com/nginx/njs.git /opt/nginx-modules/nginx_njs
           git clone -q --single-branch --depth 1 https://github.com/openresty/headers-more-nginx-module.git /opt/nginx-modules/nginx_headers_more_module
           git clone -q --single-branch --depth 1 https://github.com/arut/nginx-dav-ext-module.git /opt/nginx-modules/nginx_dav_ext_module

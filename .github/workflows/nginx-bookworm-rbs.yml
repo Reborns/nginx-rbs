@@ -59,7 +59,7 @@ jobs:
           dch --newversion "$NEW_VERSION" --distribution "bookworm" --force-distribution --force-bad-version "Build for version $ORIG_VERSION by RBS."
           cp ../rules-bookworm debian/rules
           rm -rf debian/files
-          cp ../passenger.conf.example debian/passenger.conf
+          cp ../passenger.conf.example debian/passenger.conf.example
           sed -i '/Package: nginx-dbg/,/^$/d' debian/control
           sed -i '/build-nginx-debug/,/^$/d' debian/nginx.install
           sed -i 's/^[ ]\+/\t/g' debian/rules

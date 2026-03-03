@@ -1,4 +1,4 @@
-name: Build Nginx Bookworm
+name: Get Latest OpenSSL Version
 on:
   workflow_dispatch:
 

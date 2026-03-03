@@ -34,7 +34,7 @@ jobs:
       - name: Clone Fresh Modules
         run: |
           mkdir -p /opt/nginx-modules
-          wget -q -c https://github.com/openssl/openssl/releases/download/openssl-"${{ steps.openssl_version.outputs.version }}"/openssl-"${{ steps.openssl_version.outputs.version }}".tar.gz  -O - | tar -xz -C /opt/nginx-modules/
+          wget -q -c https://github.com/openssl/openssl/releases/download/openssl-${{ steps.openssl_version.outputs.version }}/openssl-${{ steps.openssl_version.outputs.version }}.tar.gz  -O - | tar -xz -C /opt/nginx-modules/
           git clone -q --single-branch --depth 1 https://github.com/nginx/njs.git /opt/nginx-modules/nginx_njs
           git clone -q --single-branch --depth 1 https://github.com/openresty/headers-more-nginx-module.git /opt/nginx-modules/nginx_headers_more_module
           git clone -q --single-branch --depth 1 https://github.com/arut/nginx-dav-ext-module.git /opt/nginx-modules/nginx_dav_ext_module
@@ -97,11 +97,11 @@ jobs:
           script: |
             chmod 644 /opt/www/downloads/utils/webservers/nginx/*.deb
             sudo chown rbs:www-data /opt/www/downloads/utils/webservers/nginx/*.deb    
-            sed -i 's/openssl-[0-9.]*/openssl-"${{ steps.openssl_version.outputs.version }}"/g' /opt/www/downloads/utils/webservers/nginx/_h5ai.header.html 
+            sed -i 's/openssl-[0-9.]*/openssl-${{ steps.openssl_version.outputs.version }}/g' /opt/www/downloads/utils/webservers/nginx/_h5ai.header.html 
             
       - name: Upload to OpenRepo
         run: |
           for deb in *.deb; do
             echo "Uploading $deb to OpenRepo..."
-            openrepo -k "${{ secrets.OPENREPO_KEY }}" -s "${{ secrets.OPENREPO_HOST }}" upload -r bookworm -o "$deb"
+            openrepo -k ${{ secrets.OPENREPO_KEY }} -s ${{ secrets.OPENREPO_HOST }} upload -r bookworm -o "$deb"
           done

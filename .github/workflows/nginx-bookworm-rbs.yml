@@ -96,7 +96,7 @@ jobs:
           key: ${{ secrets.REPO_SSH_KEY }}
           script: |
             chmod 644 /opt/www/downloads/utils/webservers/nginx/*.deb
-            sudo chown www-data:www-data /opt/www/downloads/utils/webservers/nginx/*.deb    
+            sudo chown rbs:www-data /opt/www/downloads/utils/webservers/nginx/*.deb    
             sed -i 's/openssl-[0-9.]*/openssl-"${{ steps.openssl_version.outputs.version }}"/g' /opt/www/downloads/utils/webservers/nginx/_h5ai.header.html 
             
       - name: Upload to OpenRepo

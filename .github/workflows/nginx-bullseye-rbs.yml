@@ -72,7 +72,7 @@ jobs:
       - name: Run dpkg-buildpackage
         run: |
           cd nginx-*/
-          DEB_BUILD_OPTIONS=terse dpkg-buildpackage -rfakeroot -uc -b -j$(nproc)
+          DEB_BUILD_OPTIONS=terse dpkg-buildpackage -rfakeroot -us -uc -b -j$(nproc)
           
       - name: Upload DEB to Schizoid Host
         uses: appleboy/scp-action@v0.1.7

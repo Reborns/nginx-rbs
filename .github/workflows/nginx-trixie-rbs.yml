@@ -82,11 +82,20 @@ jobs:
           key: ${{ secrets.REPO_SSH_KEY }}
           source: "./*.deb"
           target: "/opt/www/downloads/utils/webservers/nginx/"     
-                 
+ 
+      - name: Set Permissions on Remote Host
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.REPO_HOST }}
+          username: ${{ secrets.REPO_USER }}
+          key: ${{ secrets.REPO_SSH_KEY }}
+          script: |
+            chmod 644 /opt/www/downloads/utils/webservers/nginx/*.deb
+            sudo chown www-data:www-data /opt/www/downloads/utils/webservers/nginx/*.deb      
+                            
       - name: Upload to OpenRepo
         run: |
           for deb in *.deb; do
             echo "Uploading $deb to OpenRepo..."
             openrepo -k "${{ secrets.OPENREPO_KEY }}" -s "${{ secrets.OPENREPO_HOST }}" upload -r trixie -o "$deb"
           done
-            rm -rf "$UPLOAD_DIR"

@@ -24,7 +24,14 @@ INSTALLDIR = $(CURDIR)/debian/nginx
 BASEDIR = $(CURDIR)
 MODULESDIR = /opt/nginx-modules
 
-NUMJOBS = $(shell nproc)
+ifneq (,$(filter parallel=%,$(DEB_BUILD_OPTIONS)))
+        NUMJOBS = $(patsubst parallel=%,%,$(filter parallel=%,$(DEB_BUILD_OPTIONS)))
+        ifeq (${NUMJOBS}, 0)
+                NUMJOBS = 1
+        endif
+else
+        NUMJOBS = 1
+endif
 
 DO_PKGS = $(PKGS)
 
@@ -59,7 +66,7 @@ config.status.nginx: config.env.nginx
         --with-file-aio \
         --with-threads \
         --with-openssl=$(MODULESDIR)/openssl-3.6.1 \
-        --with-openssl-opt="enable-ktls threads -fPIC no-tests no-samples no-docs no-shared" \
+        --with-openssl-opt="enable-ktls threads -fPIC no-tests no-samples no-docs" \
         --add-module=$(MODULESDIR)/nginx_headers_more_module \
         --add-module=$(MODULESDIR)/nginx_dav_ext_module \
         --add-module=$(MODULESDIR)/nginx_sticky_module \

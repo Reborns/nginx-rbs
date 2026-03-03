@@ -87,7 +87,7 @@ jobs:
           source: "./*.deb"
           target: "/tmp/nginx-build-${{ github.run_id }}"
           
-      - name: Set Permissions on Remote Host
+      - name: Set Permissions on Remote Host and adding to OpenRepo
         uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ secrets.REPO_HOST }}
@@ -107,4 +107,3 @@ jobs:
             done  
             sed -i 's/openssl-[0-9.]*/openssl-${{ steps.openssl_version.outputs.version }}/g' /opt/www/downloads/utils/webservers/nginx/_h5ai.header.html 
             rm -rf "$UPLOAD_DIR"
-

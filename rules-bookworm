@@ -1,6 +1,7 @@
 #!/usr/bin/make -f
 
 #export DH_VERBOSE=1
+export DEB_BUILD_OPTIONS=parallel=$(shell nproc)
 include /usr/share/dpkg/vendor.mk
 ifeq ($(shell $(call dpkg_vendor_derives_from,ubuntu)),yes)
 DISTROREL_MAJOR := $(shell lsb_release -rs | cut -d. -f 1)
@@ -66,7 +67,7 @@ config.status.nginx: config.env.nginx
         --with-file-aio \
         --with-threads \
         --with-openssl=$(MODULESDIR)/openssl-3.6.1 \
-        --with-openssl-opt="enable-ktls threads -fPIC" \
+        --with-openssl-opt="enable-ktls threads -fPIC no-tests no-samples no-docs" \
         --add-module=$(MODULESDIR)/nginx_headers_more_module \
         --add-module=$(MODULESDIR)/nginx_dav_ext_module \
         --add-module=$(MODULESDIR)/nginx_sticky_module \

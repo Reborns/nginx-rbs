@@ -123,7 +123,7 @@ install:
         mkdir -p $(INSTALLDIR)/etc/nginx/sites-enabled
         install -m 644 debian/CHANGES $(INSTALLDIR)/usr/share/doc/nginx/changelog
         install -m 644 debian/nginx.default.conf $(INSTALLDIR)/etc/nginx/conf.d/default.conf
-        install -m 644 debian/passenger.conf $(INSTALLDIR)/etc/nginx/conf.d/passenger.conf.example
+        install -m 644 debian/passenger.conf.example $(INSTALLDIR)/etc/nginx/conf.d/passenger.conf.example
         install -m 644 $(CURDIR)/objs/ngx_http_passenger_module.so $(INSTALLDIR)/usr/lib/nginx/modules/ngx_http_passenger_module.so
         install -m 644 $(CURDIR)/objs/ngx_http_vhost_traffic_status_module.so $(INSTALLDIR)/usr/lib/nginx/modules/ngx_http_vhost_traffic_status_module.so
         install -m 644 $(CURDIR)/objs/ngx_http_geoip2_module.so $(INSTALLDIR)/usr/lib/nginx/modules/ngx_http_geoip2_module.so

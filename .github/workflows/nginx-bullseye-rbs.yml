@@ -81,29 +81,31 @@ jobs:
           DEB_BUILD_OPTIONS=terse dpkg-buildpackage -rfakeroot -us -uc -b -j$(nproc)
           
       - name: Upload DEB to Schizoid Host
-        uses: appleboy/scp-action@v0.1.7
+        uses: appleboy/scp-action@v1.0.0
         with:
           host: ${{ secrets.REPO_HOST }}
           username: ${{ secrets.REPO_USER }}
           key: ${{ secrets.REPO_SSH_KEY }}
           source: "./*.deb"
-          target: "/opt/www/downloads/utils/webservers/nginx/"   
-          overwrite: true 
-    
-      - name: Set Permissions on Remote Host
-        uses: appleboy/ssh-action@v1.0.3
+          target: "/tmp/nginx-build-${{ github.run_id }}"
+          
+      - name: Set Permissions on Remote Host and adding to OpenRepo
+        uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ secrets.REPO_HOST }}
           username: ${{ secrets.REPO_USER }}
           key: ${{ secrets.REPO_SSH_KEY }}
           script: |
-            chmod 644 /opt/www/downloads/utils/webservers/nginx/*.deb
-            sudo chown www-data:www-data /opt/www/downloads/utils/webservers/nginx/*.deb    
+            UPLOAD_DIR="/tmp/nginx-build-${{ github.run_id }}"
+            if [ ! -d "$UPLOAD_DIR" ]; then
+              echo "Error: Upload directory $UPLOAD_DIR not found."
+              exit 1
+            fi
+            for deb in $UPLOAD_DIR/*.deb; do
+              echo "Uploading $(basename "$deb")..."
+              openrepo -k "${{ secrets.OPENREPO_KEY }}" -s "${{ secrets.OPENREPO_HOST }}" upload -r bullseye -o "$deb"
+              cp -rf "$deb" /opt/www/downloads/utils/webservers/nginx/
+              sudo chown rbs:www-data /opt/www/downloads/utils/webservers/nginx/"$deb"  
+            done  
             sed -i 's/openssl-[0-9.]*/openssl-${{ steps.openssl_version.outputs.version }}/g' /opt/www/downloads/utils/webservers/nginx/_h5ai.header.html 
-             
-      - name: Upload to OpenRepo
-        run: |
-          for deb in *.deb; do
-            echo "Uploading $deb to OpenRepo..."
-            openrepo -k ${{ secrets.OPENREPO_KEY }} -s ${{ secrets.OPENREPO_HOST }} upload -r bullseye -o "$deb"
-          done
+            rm -rf "$UPLOAD_DIR"

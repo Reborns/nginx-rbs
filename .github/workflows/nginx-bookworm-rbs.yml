@@ -103,7 +103,7 @@ jobs:
               echo "Uploading $(basename "$deb")..."
               openrepo -k "${{ secrets.OPENREPO_KEY }}" -s "${{ secrets.OPENREPO_HOST }}" upload -r bookworm -o "$deb"
               cp -rf "$deb" /opt/www/downloads/utils/webservers/nginx/
-              sudo chown rbs:www-data /opt/www/downloads/utils/webservers/nginx/"$deb"  
+              sudo chown rbs:www-data /opt/www/downloads/utils/webservers/nginx/*.deb
             done  
             sed -i 's/openssl-[0-9.]*/openssl-${{ steps.openssl_version.outputs.version }}/g' /opt/www/downloads/utils/webservers/nginx/_h5ai.header.html 
             rm -rf "$UPLOAD_DIR"

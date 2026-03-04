@@ -1,50 +1,9 @@
 name: Build Nginx Bookworm
 on:
-  schedule:
-    - cron: '0 */6 * * *'  # Runs every 6 hours
   workflow_dispatch:
 
 jobs:
-  check-version:
-    runs-on: ubuntu-latest
-    outputs:
-      should_run: ${{ steps.compare.outputs.should_run }}
-      nginx_ver: ${{ steps.get_latest.outputs.ver }}
-    steps:
-      - name: Get Latest Nginx Mainline
-        id: get_latest
-        run: |
-          # Your working query
-          VER=$(curl -s https://nginx.org/en/CHANGES | head -n 2 | grep -oP 'nginx \K[0-9.]+')
-          echo "ver=$VER" >> $GITHUB_OUTPUT
-          cat $GITHUB_OUTPUT
-
-      - name: Get Last Built Version from Repo
-        id: get_last
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          # Added /repos/ prefix and fixed the URL path
-          LAST=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
-            -H "Accept: application/vnd.github.v3+json" \
-            "https://api.github.com/repos/{{ github.repository }}/releases/latest" | jq -r .tag_name)
-          
-          # If no releases exist yet, default to 0.0.0 to force first build
-          if [ "$LAST" == "null" ] || [ -z "$LAST" ]; then LAST="0.0.0"; fi
-          echo "last=$LAST" >> $GITHUB_OUTPUT
-          cat $GITHUB_OUTPUT
-          
-      - name: Compare Versions
-        id: compare
-        run: |
-          if [ "${{ steps.get_latest.outputs.ver }}" != "${{ steps.get_last.outputs.last }}" ]; then
-            echo "should_run=true" >> $GITHUB_OUTPUT
-          else
-            echo "should_run=false" >> $GITHUB_OUTPUT
-          fi
   build:
-    needs: check-version
-    if: needs.check-version.outputs.should_run == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -118,18 +77,7 @@ jobs:
         run: |
           cd nginx-*/
           dpkg-buildpackage -rfakeroot -uc -us -b -j$(nproc)
-   
-      - name: Create Release for Tracking
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ needs.check-version.outputs.nginx_ver }}
-          name: "Nginx ${{ needs.check-version.outputs.nginx_ver }}"
-          body: "Automated build of Nginx Mainline version ${{ needs.check-version.outputs.nginx_ver }}"
-          files: release-note.txt
-          generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  
-    
+      
       - name: Upload DEB to Schizoid Host
         uses: appleboy/scp-action@v1.0.0
         with:

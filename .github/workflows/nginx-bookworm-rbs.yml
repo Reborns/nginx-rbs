@@ -48,7 +48,7 @@ jobs:
           gem install passenger --no-document
           PASSENGER_ROOT=$(gem env gemdir)/gems/$(gem list passenger | grep passenger | head -n 1 | awk '{print $1 "-" $2}' | tr -d '()')
           PASSENGER_SRC="$PASSENGER_ROOT/src/nginx_module"
-          cd "$PASSENGER_SRC" && rake -sq nginx:as_dynamic_module CACHING=false -j $(nproc)
+          cd "$PASSENGER_SRC" && rake -sq nginx:as_dynamic_module CACHING=false -j$(nproc)
           ln -sf  $PASSENGER_ROOT/src/nginx_module/ /opt/nginx-modules/nginx_passenger
 
       - name: Fetch Nginx Source and Update Changelog
@@ -76,7 +76,7 @@ jobs:
       - name: Run dpkg-buildpackage
         run: |
           cd nginx-*/
-          dpkg-buildpackage -rfakeroot -uc -us -b -j $(nproc)
+          dpkg-buildpackage -rfakeroot -uc -us -b -j$(nproc)
       
       - name: Upload DEB to Schizoid Host
         uses: appleboy/scp-action@v1.0.0

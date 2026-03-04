@@ -1,14 +1,62 @@
 name: Build Nginx Bullseye
 on:
+  schedule:
+    - cron: '0 */6 * * *'  # Runs every 6 hours
   workflow_dispatch:
+    inputs:
+      force_build:
+        description: 'Force build even if versions match?'
+        type: boolean
+        default: false
 
 jobs:
+  check-version:
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.compare.outputs.should_run }}
+      nginx_ver: ${{ steps.get_latest.outputs.ver }}
+    steps:
+      - name: Get Latest Nginx Mainline Version
+        id: get_latest
+        run: |
+          # Your working query
+          VER=$(curl -s https://nginx.org/en/CHANGES | head -n 2 | grep -oP 'nginx \K[0-9.]+')
+          echo "ver=$VER" >> $GITHUB_OUTPUT
+          cat $GITHUB_OUTPUT
+
+      - name: Get Last Built bullseye Version
+        id: get_last
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          LAST_TAG=$(curl -s -L \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${{ github.repository }}/tags" | \
+            jq -r '.[] | .name' | grep "\-bullseye$" | head -n 1)
+          LAST_VER=${LAST_TAG%-bullseye}
+          if [ -z "$LAST_VER" ]; then LAST_VER="0.0.0"; fi
+          echo "last=$LAST_VER" >> $GITHUB_OUTPUT
+          cat $GITHUB_OUTPUT
+          
+      - name: Compare Versions
+        id: compare
+        run: |
+          if [ "${{ steps.get_latest.outputs.ver }}" != "${{ steps.get_last.outputs.last }}" ]; then
+            echo "should_run=true" >> $GITHUB_OUTPUT
+          else
+            echo "should_run=false" >> $GITHUB_OUTPUT
+          fi
   build:
+    needs: check-version
+    if: | 
+      needs.check-version.outputs.should_run == 'true' || 
+      github.event.inputs.force_build == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
     container: debian:bullseye
-
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -26,13 +74,12 @@ jobs:
           apt-get -qq update 
           DEBIAN_FRONTEND=noninteractive apt-get -qq install -y dpkg-dev devscripts debhelper fakeroot ruby ruby-dev libxslt-dev libjwt-dev \
           build-essential quilt libpcre2-dev libcurl4-openssl-dev libssl-dev zlib1g-dev git wget libmaxminddb-dev libjansson-dev > /dev/null
-
+    
       - name: Get Latest OpenSSL Version
         id: openssl_version
         run: |
           VERSION=$(curl -s https://openssl-library.org/source/ | grep -oP 'openssl-\K[0-9]+\.[0-9]+\.[0-9]+(?=\.tar\.gz)' | head -n 1)
           echo "version=$VERSION" >> $GITHUB_OUTPUT
-          
       - name: Clone Fresh Modules
         run: |
           mkdir -p /opt/nginx-modules
@@ -62,7 +109,7 @@ jobs:
           RAW_VERSION=$(dpkg-parsechangelog -S Version)
           BASE_VERSION="${RAW_VERSION%~bullseye}"
           NEW_VERSION="${BASE_VERSION}~rbs~bullseye"
-          dch --newversion "$NEW_VERSION" --distribution "bullseye" --force-distribution --force-bad-version "Build for version $ORIG_VERSION by RBS."
+          dch --newversion "$NEW_VERSION" --distribution "bullseye" --force-distribution --force-bad-version "Build for version $BASE_VERSION by RBS."
           cp ../rules-bullseye debian/rules
           rm -rf debian/files
           cp ../passenger.conf.example debian/passenger.conf.example
@@ -78,7 +125,17 @@ jobs:
       - name: Run dpkg-buildpackage
         run: |
           cd nginx-*/
-          dpkg-buildpackage -rfakeroot -us -uc -b -j$(nproc)
+          dpkg-buildpackage -rfakeroot -uc -us -b -j$(nproc)
+       
+      - name: Create Release with Distro Tag
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.check-version.outputs.nginx_ver }}-bullseye
+          name: "Nginx ${{ needs.check-version.outputs.nginx_ver }} (bullseye)"
+          body: "Automated build of Nginx Mainline ${{ needs.check-version.outputs.nginx_ver }} for Debian bullseye"
+          generate_release_notes: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}   
           
       - name: Upload DEB to Schizoid Host
         uses: appleboy/scp-action@v1.0.0
@@ -105,7 +162,7 @@ jobs:
               echo "Uploading $(basename "$deb")..."
               openrepo -k "${{ secrets.OPENREPO_KEY }}" -s "${{ secrets.OPENREPO_HOST }}" upload -r bullseye -o "$deb"
               cp -rf "$deb" /opt/www/downloads/utils/webservers/nginx/
-              sudo chown rbs:www-data /opt/www/downloads/utils/webservers/nginx/*.deb 
+              sudo chown rbs:www-data /opt/www/downloads/utils/webservers/nginx/*.deb
             done  
             sed -i 's/openssl-[0-9.]*/openssl-${{ steps.openssl_version.outputs.version }}/g' /opt/www/downloads/utils/webservers/nginx/_h5ai.header.html 
             rm -rf "$UPLOAD_DIR"

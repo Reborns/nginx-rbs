@@ -11,7 +11,7 @@ jobs:
       should_run: ${{ steps.compare.outputs.should_run }}
       nginx_ver: ${{ steps.get_latest.outputs.ver }}
     steps:
-      - name: Get Latest Nginx Mainline
+      - name: Get Latest Nginx Mainline Version
         id: get_latest
         run: |
           # Your working query
@@ -19,18 +19,20 @@ jobs:
           echo "ver=$VER" >> $GITHUB_OUTPUT
           cat $GITHUB_OUTPUT
 
-      - name: Get Last Built Version from Repo
+      - name: Get Last Built Bookworm Version
         id: get_last
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          LAST=$(curl -s -L \
+          LAST_TAG=$(curl -s -L \
             -H "Authorization: Bearer $GH_TOKEN" \
             -H "Accept: application/vnd.github+json" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/${{ github.repository }}/releases/latest" | jq -r .tag_name)
-          if [ "$LAST" == "null" ] || [ -z "$LAST" ]; then LAST="0.0.0"; fi
-          echo "last=$LAST" >> $GITHUB_OUTPUT
+            "https://api.github.com/repos/${{ github.repository }}/tags" | \
+            jq -r '.[] | .name' | grep "\-bookworm$" | head -n 1)
+          LAST_VER=${LAST_TAG%-bookworm}
+          if [ -z "$LAST_VER" ]; then LAST_VER="0.0.0"; fi
+          echo "last=$LAST_VER" >> $GITHUB_OUTPUT
           cat $GITHUB_OUTPUT
           
       - name: Compare Versions
@@ -117,7 +119,17 @@ jobs:
         run: |
           cd nginx-*/
           dpkg-buildpackage -rfakeroot -uc -us -b -j$(nproc)
-      
+       
+      - name: Create Release with Distro Tag
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.check-version.outputs.nginx_ver }}-bookworm
+          name: "Nginx ${{ needs.check-version.outputs.nginx_ver }} (Bookworm)"
+          body: "Automated build of Nginx Mainline ${{ needs.check-version.outputs.nginx_ver }} for Debian Bookworm"
+          generate_release_notes: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}   
+          
       - name: Upload DEB to Schizoid Host
         uses: appleboy/scp-action@v1.0.0
         with:

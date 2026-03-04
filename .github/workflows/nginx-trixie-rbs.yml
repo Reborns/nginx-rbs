@@ -1,7 +1,7 @@
 name: Build Nginx Trixie
 on:
   schedule:
-    - cron: '0 */6 * * *'  # Runs every 6 hours
+    - cron: '0 4 * * *'  # Runs at 04:00 UTC daily
   workflow_dispatch:
     inputs:
       force_build:

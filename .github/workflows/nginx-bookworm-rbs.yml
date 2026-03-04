@@ -109,7 +109,7 @@ jobs:
           RAW_VERSION=$(dpkg-parsechangelog -S Version)
           BASE_VERSION="${RAW_VERSION%~bookworm}"
           NEW_VERSION="${BASE_VERSION}~rbs~bookworm"
-          dch --newversion "$NEW_VERSION" --distribution "bookworm" --force-distribution --force-bad-version "Build for version $ORIG_VERSION by RBS."
+          dch --newversion "$NEW_VERSION" --distribution "bookworm" --force-distribution --force-bad-version "Build for version $BASE_VERSION by RBS."
           cp ../rules-bookworm debian/rules
           rm -rf debian/files
           cp ../passenger.conf.example debian/passenger.conf.example

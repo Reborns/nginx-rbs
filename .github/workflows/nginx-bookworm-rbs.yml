@@ -45,7 +45,7 @@ jobs:
           fi
   build:
     needs: check-version
-    if: needs.check-version.outputs.should_run == 'true'
+    if: needs.check-version.outputs.should_run == 'true' || github.event.inputs.force_build == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write

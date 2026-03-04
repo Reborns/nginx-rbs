@@ -17,14 +17,16 @@ jobs:
           # Your working query
           VER=$(curl -s https://nginx.org/en/CHANGES | head -n 2 | grep -oP 'nginx \K[0-9.]+')
           echo "ver=$VER" >> $GITHUB_OUTPUT
+          echo $GITHUB_OUTPUT
 
       - name: Get Last Built Version
         id: get_last
         run: |
           # Fetch the latest release tag from YOUR repo
-          LAST=$(curl -s https://api.github.com{{ github.repository }}/releases/latest | jq -r .tag_name || echo "0.0.0")
+          LAST=$(curl -s H "Accept: application/vnd.github.v3+json" https://api.github.com{{ github.repository }}/releases/latest | jq -r .tag_name )
           echo "last=$LAST" >> $GITHUB_OUTPUT
-
+          echo $GITHUB_OUTPUT
+          
       - name: Compare Versions
         id: compare
         run: |

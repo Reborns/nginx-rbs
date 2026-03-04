@@ -125,6 +125,8 @@ jobs:
           tag_name: ${{ needs.check-version.outputs.nginx_ver }}
           name: "Nginx ${{ needs.check-version.outputs.nginx_ver }}"
           body: "Automated build of Nginx Mainline version ${{ needs.check-version.outputs.nginx_ver }}"
+          files: release-note.txt
+          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  
     

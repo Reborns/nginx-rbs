@@ -19,11 +19,18 @@ jobs:
           echo "ver=$VER" >> $GITHUB_OUTPUT
           cat $GITHUB_OUTPUT
 
-      - name: Get Last Built Version
+      - name: Get Last Built Version from Repo
         id: get_last
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Fetch the latest release tag from YOUR repo
-          LAST=$(curl -s H "Accept: application/vnd.github.v3+json" https://api.github.com{{ github.repository }}/releases/latest | jq -r .tag_name )
+          # Added /repos/ prefix and fixed the URL path
+          LAST=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/{{ github.repository }}/releases/latest" | jq -r .tag_name)
+          
+          # If no releases exist yet, default to 0.0.0 to force first build
+          if [ "$LAST" == "null" ] || [ -z "$LAST" ]; then LAST="0.0.0"; fi
           echo "last=$LAST" >> $GITHUB_OUTPUT
           cat $GITHUB_OUTPUT
           

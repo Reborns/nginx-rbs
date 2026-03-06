@@ -23,13 +23,13 @@ jobs:
             const { owner, repo } = context.repo;
             const currentRunId = context.runId;
 
-            // Get current run to find THIS workflow's ID
+            // Reliably get this workflow's ID
             const currentRun = await github.rest.actions.getWorkflowRun({
               owner,
               repo,
               run_id: currentRunId,
             });
-            const selfWorkflowId = currentRun.data.workflow_id;  // reliable self-detection
+            const selfWorkflowId = currentRun.data.workflow_id;
 
             const workflows = await github.rest.actions.listRepoWorkflows({ owner, repo });
 
@@ -49,12 +49,15 @@ jobs:
                 per_page: 100,
               });
 
-              const runsToConsider = isSelf
-                ? runs.data.workflow_runs.filter(r => r.id !== currentRunId)
-                : runs.data.workflow_runs;
+              // All runs sorted newest first (default)
+              const allRuns = runs.data.workflow_runs;
 
-              const toDelete = runsToConsider.slice(keep);
-              console.log(`  → Keeping ${keep}, deleting ${toDelete.length}`);
+              // Runs to delete = everything after KEEP, but skip current run (can't delete in-progress)
+              const toDelete = allRuns
+                .slice(keep)
+                .filter(r => r.id !== currentRunId);  // exclude current from DELETION only
+
+              console.log(`  → Total: ${allRuns.length}, keeping ${keep}, deleting ${toDelete.length}`);
 
               for (const run of toDelete) {
                 await github.rest.actions.deleteWorkflowRun({

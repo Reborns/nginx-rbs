@@ -2,7 +2,7 @@ name: Cleanup Nginx Workflow Runs
 
 on:
   schedule:
-    - cron: '0 0 * * 0'
+    - cron: '0 0 * * *'
   workflow_dispatch:
 
 jobs:
@@ -17,20 +17,26 @@ jobs:
         with:
           script: |
             const KEEP = 3;
-            const KEEP_SELF = 1;       // how many runs of THIS workflow to keep
-            const FILTER = 'nginx';    // filter for target workflows
+            const KEEP_SELF = 1;
+            const FILTER = 'nginx';
 
             const { owner, repo } = context.repo;
-            const currentWorkflowId = context.workflow;  // this workflow's name
-            const currentRunId = context.runId;          // this exact run's ID
+            const currentRunId = context.runId;
+
+            // Get current run to find THIS workflow's ID
+            const currentRun = await github.rest.actions.getWorkflowRun({
+              owner,
+              repo,
+              run_id: currentRunId,
+            });
+            const selfWorkflowId = currentRun.data.workflow_id;  // reliable self-detection
 
             const workflows = await github.rest.actions.listRepoWorkflows({ owner, repo });
 
             for (const workflow of workflows.data.workflows) {
-              const isSelf = workflow.name === currentWorkflowId;
+              const isSelf = workflow.id === selfWorkflowId;
               const isNginx = workflow.name.toLowerCase().includes(FILTER.toLowerCase());
 
-              // Skip workflows that don't match nginx AND aren't self
               if (!isNginx && !isSelf) continue;
 
               const keep = isSelf ? KEEP_SELF : KEEP;
@@ -43,7 +49,6 @@ jobs:
                 per_page: 100,
               });
 
-              // For self: skip the current running instance so it doesn't delete itself mid-run
               const runsToConsider = isSelf
                 ? runs.data.workflow_runs.filter(r => r.id !== currentRunId)
                 : runs.data.workflow_runs;

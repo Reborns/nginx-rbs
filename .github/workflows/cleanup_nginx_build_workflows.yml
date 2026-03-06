@@ -12,25 +12,29 @@ jobs:
       actions: write
 
     steps:
-      - name: Delete old nginx workflow runs
+      - name: Delete old workflow runs
         uses: actions/github-script@v7
         with:
           script: |
             const KEEP = 3;
-            const FILTER = 'nginx';  // <-- change this to match your workflow name
+            const KEEP_SELF = 1;       // how many runs of THIS workflow to keep
+            const FILTER = 'nginx';    // filter for target workflows
+
             const { owner, repo } = context.repo;
+            const currentWorkflowId = context.workflow;  // this workflow's name
+            const currentRunId = context.runId;          // this exact run's ID
 
             const workflows = await github.rest.actions.listRepoWorkflows({ owner, repo });
 
-            // Filter workflows whose name contains "nginx"
-            const matched = workflows.data.workflows.filter(w =>
-              w.name.toLowerCase().includes(FILTER.toLowerCase())
-            );
+            for (const workflow of workflows.data.workflows) {
+              const isSelf = workflow.name === currentWorkflowId;
+              const isNginx = workflow.name.toLowerCase().includes(FILTER.toLowerCase());
 
-            console.log(`Found ${matched.length} workflow(s) matching "${FILTER}"`);
+              // Skip workflows that don't match nginx AND aren't self
+              if (!isNginx && !isSelf) continue;
 
-            for (const workflow of matched) {
-              console.log(`Processing: "${workflow.name}"`);
+              const keep = isSelf ? KEEP_SELF : KEEP;
+              console.log(`Processing: "${workflow.name}" (keep=${keep}${isSelf ? ', self' : ''})`);
 
               const runs = await github.rest.actions.listWorkflowRuns({
                 owner,
@@ -39,8 +43,13 @@ jobs:
                 per_page: 100,
               });
 
-              const toDelete = runs.data.workflow_runs.slice(KEEP);
-              console.log(`  → Keeping ${Math.min(KEEP, runs.data.total_count)}, deleting ${toDelete.length}`);
+              // For self: skip the current running instance so it doesn't delete itself mid-run
+              const runsToConsider = isSelf
+                ? runs.data.workflow_runs.filter(r => r.id !== currentRunId)
+                : runs.data.workflow_runs;
+
+              const toDelete = runsToConsider.slice(keep);
+              console.log(`  → Keeping ${keep}, deleting ${toDelete.length}`);
 
               for (const run of toDelete) {
                 await github.rest.actions.deleteWorkflowRun({

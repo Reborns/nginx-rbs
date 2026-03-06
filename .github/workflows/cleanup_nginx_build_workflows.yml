@@ -1,0 +1,53 @@
+name: Cleanup Nginx Workflow Runs
+
+on:
+  schedule:
+    - cron: '0 0 * * 0'
+  workflow_dispatch:
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+
+    steps:
+      - name: Delete old nginx workflow runs
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const KEEP = 10;
+            const FILTER = 'nginx';  // <-- change this to match your workflow name
+            const { owner, repo } = context.repo;
+
+            const workflows = await github.rest.actions.listRepoWorkflows({ owner, repo });
+
+            // Filter workflows whose name contains "nginx"
+            const matched = workflows.data.workflows.filter(w =>
+              w.name.toLowerCase().includes(FILTER.toLowerCase())
+            );
+
+            console.log(`Found ${matched.length} workflow(s) matching "${FILTER}"`);
+
+            for (const workflow of matched) {
+              console.log(`Processing: "${workflow.name}"`);
+
+              const runs = await github.rest.actions.listWorkflowRuns({
+                owner,
+                repo,
+                workflow_id: workflow.id,
+                per_page: 100,
+              });
+
+              const toDelete = runs.data.workflow_runs.slice(KEEP);
+              console.log(`  → Keeping ${Math.min(KEEP, runs.data.total_count)}, deleting ${toDelete.length}`);
+
+              for (const run of toDelete) {
+                await github.rest.actions.deleteWorkflowRun({
+                  owner,
+                  repo,
+                  run_id: run.id,
+                });
+                console.log(`  → Deleted run ${run.id}`);
+              }
+            }

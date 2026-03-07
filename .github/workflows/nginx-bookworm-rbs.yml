@@ -175,8 +175,8 @@ jobs:
          secure: true
          username: ${{ secrets.MAIL_USERNAME }}   
          password: ${{ secrets.MAIL_PASSWORD }}
-         to: your@email.com
-         from: GitHub Actions <your@email.com>
+         to: reborns@gmail.com
+         from: GitHub Actions <reborns@gmail.com>
          subject: "✅ Nginx ${{ needs.check-version.outputs.nginx_ver }} built for Bookworm"
          body: |
            A new Nginx build completed successfully.

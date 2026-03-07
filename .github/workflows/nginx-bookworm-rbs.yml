@@ -166,3 +166,23 @@ jobs:
             done  
             sed -i 's/openssl-[0-9.]*/openssl-${{ steps.openssl_version.outputs.version }}/g' /opt/www/downloads/utils/webservers/nginx/_h5ai.header.html 
             rm -rf "$UPLOAD_DIR"
+      - name: Notify on Successful Build
+        if: success()
+        uses: dawidd6/action-send-mail@v3
+        with:
+         server_address: smtp.gmail.com
+         server_port: 465
+         secure: true
+         username: ${{ secrets.MAIL_USERNAME }}   
+         password: ${{ secrets.MAIL_PASSWORD }}
+         to: your@email.com
+         from: GitHub Actions <your@email.com>
+         subject: "✅ Nginx ${{ needs.check-version.outputs.nginx_ver }} built for Bookworm"
+         body: |
+           A new Nginx build completed successfully.
+
+           Version: ${{ needs.check-version.outputs.nginx_ver }}
+         Distro: Debian Bookworm
+         Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+          Packages have been uploaded to OpenRepo and your download server.    

@@ -183,7 +183,7 @@ jobs:
            A new Nginx build completed successfully.
 
            Version: ${{ needs.check-version.outputs.nginx_ver }}
-         Distro: Debian Bookworm
-         Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+           Distro: Debian Bookworm
+           Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
-          Packages have been uploaded to OpenRepo and your download server.    
+           Packages have been uploaded to OpenRepo and your download server.    

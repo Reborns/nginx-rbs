@@ -69,7 +69,6 @@ config.status.nginx: config.env.nginx
         --with-openssl-opt="enable-ktls threads -fPIC" \
         --add-module=$(MODULESDIR)/nginx_headers_more_module \
         --add-module=$(MODULESDIR)/nginx_dav_ext_module \
-        --add-module=$(MODULESDIR)/nginx_sticky_module \
         --add-dynamic-module=$(MODULESDIR)/nginx_passenger \
         --add-dynamic-module=$(MODULESDIR)/nginx_module_vts \
         --add-dynamic-module=$(MODULESDIR)/nginx_http_geoip2_module \

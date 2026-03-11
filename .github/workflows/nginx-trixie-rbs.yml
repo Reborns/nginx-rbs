@@ -110,7 +110,7 @@ jobs:
           NEW_VERSION="${BASE_VERSION}~rbs~trixie"
           dch --newversion "$NEW_VERSION" --distribution "trixie" --force-distribution --force-bad-version "Build for version $BASE_VERSION by RBS."
           cp ../rules-trixie debian/rules
-          sed -i 's|openssl-[0-9.]*|openssl-${{ steps.openssl_version.outputs.version }}|g' debian/rules
+          sed -i 's|/openssl-[0-9.]*|/openssl-${{ steps.openssl_version.outputs.version }}|g' debian/rules
           rm -rf debian/files
           cp ../passenger.conf.example debian/passenger.conf.example
           sed -i '/Package: nginx-dbg/,/^$/d' debian/control

@@ -59,7 +59,7 @@ jobs:
     container: debian:trixie
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install Debian Build Stack
         run: |
@@ -128,7 +128,7 @@ jobs:
           dpkg-buildpackage -rfakeroot -uc -us -b -j$(nproc)
        
       - name: Create Release with Distro Tag
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v2.5.0
         with:
           tag_name: ${{ needs.check-version.outputs.nginx_ver }}-trixie
           name: "Nginx ${{ needs.check-version.outputs.nginx_ver }} (trixie)"
@@ -168,7 +168,7 @@ jobs:
             rm -rf "$UPLOAD_DIR"
       - name: Notify on Successful Build
         if: success()
-        uses: dawidd6/action-send-mail@v3
+        uses: dawidd6/action-send-mail@v13
         with:
           server_address: smtp.gmail.com
           server_port: 465

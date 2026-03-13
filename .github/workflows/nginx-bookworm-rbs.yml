@@ -153,6 +153,7 @@ jobs:
           username: ${{ secrets.REPO_USER }}
           key: ${{ secrets.REPO_SSH_KEY }}
           script: |
+            find /opt/www/downloads/utils/webservers/nginx/ -name "*bookworm*.deb" -type f -delete
             UPLOAD_DIR="/tmp/nginx-build-${{ github.run_id }}"
             if [ ! -d "$UPLOAD_DIR" ]; then
               echo "Error: Upload directory $UPLOAD_DIR not found."

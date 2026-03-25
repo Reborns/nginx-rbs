@@ -128,7 +128,7 @@ jobs:
           dpkg-buildpackage -rfakeroot -uc -us -b -j$(nproc)
        
       - name: Create Release with Distro Tag
-        uses: softprops/action-gh-release@v2.5.0
+        uses: softprops/action-gh-release@v2.6.1
         with:
           tag_name: ${{ needs.check-version.outputs.nginx_ver }}-bookworm
           name: "Nginx ${{ needs.check-version.outputs.nginx_ver }} (Bookworm)"

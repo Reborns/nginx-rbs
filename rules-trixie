@@ -5,15 +5,15 @@ include /usr/share/dpkg/vendor.mk
 ifeq ($(shell $(call dpkg_vendor_derives_from,ubuntu)),yes)
 DISTROREL_MAJOR := $(shell lsb_release -rs | cut -d. -f 1)
 ifeq ($(shell test $(DISTROREL_MAJOR) -ge 24; echo $$?), 0)
-export DEB_CFLAGS_MAINT_APPEND=-fPIC -DNGX_LINKED_LIST_COOKIES=1
+export DEB_LDFLAGS_MAINT_APPEND=-Wl,--as-needed -pie -DNGX_LINKED_LIST_COOKIES=1 -lbrotlienc -lbrotlidec -lbrotlicommon -lzstd
 else
-export DEB_CFLAGS_MAINT_APPEND=-Wp,-D_FORTIFY_SOURCE=2 -fPIC -DNGX_LINKED_LIST_COOKIES=1
+export DEB_LDFLAGS_MAINT_APPEND=-Wl,--as-needed -pie -DNGX_LINKED_LIST_COOKIES=1 -lbrotlienc -lbrotlidec -lbrotlicommon -lzstd
 endif
 else
-export DEB_CFLAGS_MAINT_APPEND=-Wp,-D_FORTIFY_SOURCE=2 -fPIC -DNGX_LINKED_LIST_COOKIES=1
+export DEB_LDFLAGS_MAINT_APPEND=-Wl,--as-needed -pie -DNGX_LINKED_LIST_COOKIES=1 -lbrotlienc -lbrotlidec -lbrotlicommon -lzstd
 endif
 export DEB_BUILD_MAINT_OPTIONS=hardening=+all
-export DEB_LDFLAGS_MAINT_APPEND=-Wl,--as-needed -pie -DNGX_LINKED_LIST_COOKIES=1
+export DEB_LDFLAGS_MAINT_APPEND=-Wl,--as-needed -pie -DNGX_LINKED_LIST_COOKIES=1 -lbrotlienc -lbrotlidec -lbrotlicommon -lzstd
 #DPKG_EXPORT_BUILDFLAGS = 1
 include /usr/share/dpkg/buildflags.mk
 

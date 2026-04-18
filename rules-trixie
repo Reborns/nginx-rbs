@@ -5,7 +5,7 @@ include /usr/share/dpkg/vendor.mk
 ifeq ($(shell $(call dpkg_vendor_derives_from,ubuntu)),yes)
 DISTROREL_MAJOR := $(shell lsb_release -rs | cut -d. -f 1)
 ifeq ($(shell test $(DISTROREL_MAJOR) -ge 24; echo $$?), 0)
-export DEB_CFLAGS_MAINT_APPEND=-fPIC -DNGX_LINKED_LIST_COOKIES=1 -lbrotlienc -lbrotlidec -lbrotlicommon -lzstd
+export DEB_CFLAGS_MAINT_APPEND=-fPIC -DNGX_LINKED_LIST_COOKIES=1
 else
 export DEB_CFLAGS_MAINT_APPEND=-Wp,-D_FORTIFY_SOURCE=2 -fPIC -DNGX_LINKED_LIST_COOKIES=1
 endif
@@ -74,7 +74,8 @@ config.status.nginx: config.env.nginx
         --add-dynamic-module=$(MODULESDIR)/nginx_http_geoip2_module \
         --add-dynamic-module=$(MODULESDIR)/nginx-http-auth-jwt-module \
         --add-dynamic-module=$(MODULESDIR)/nginx_njs/nginx \
-        --with-cc-opt="$(CFLAGS)" --with-ld-opt="$(LDFLAGS)"
+        --with-cc-opt="$(CFLAGS)" \
+        --with-ld-opt="$(LDFLAGS) -lbrotlienc -lbrotlidec -lbrotlicommon -lzstd"
         touch $@
 
 build-arch.%: config.status.%

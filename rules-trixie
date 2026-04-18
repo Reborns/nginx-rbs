@@ -66,7 +66,7 @@ config.status.nginx: config.env.nginx
         --with-file-aio \
         --with-threads \
         --with-openssl=$(MODULESDIR)/openssl-3.6.1 \
-        --with-openssl-opt='enable-ktls threads -fPIC' \
+        --with-openssl-opt='enable-ktls threads -fPIC zlib-dynamic enable-zstd enable-brotli' \
         --add-module=$(MODULESDIR)/nginx_headers_more_module \
         --add-module=$(MODULESDIR)/nginx_dav_ext_module \
         --add-dynamic-module=$(MODULESDIR)/nginx_passenger \

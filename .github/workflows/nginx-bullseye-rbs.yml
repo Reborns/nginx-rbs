@@ -73,7 +73,7 @@ jobs:
           EOF
           apt-get -qq update 
           DEBIAN_FRONTEND=noninteractive apt-get -qq install -y dpkg-dev devscripts debhelper fakeroot ruby ruby-dev libxslt-dev libjwt-dev \
-          build-essential quilt libpcre2-dev libcurl4-openssl-dev libssl-dev zlib1g-dev git wget libmaxminddb-dev libjansson-dev > /dev/null
+          build-essential quilt libpcre2-dev libcurl4-openssl-dev libssl-dev libbrotli-dev libzstd-dev zlib1g-dev git wget libmaxminddb-dev libjansson-dev > /dev/null
     
       - name: Get Latest OpenSSL Version
         id: openssl_version

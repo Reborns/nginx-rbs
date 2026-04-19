@@ -66,7 +66,7 @@ config.status.nginx: config.env.nginx
         --with-file-aio \
         --with-threads \
         --with-openssl=$(MODULESDIR)/openssl-3.6.1 \
-        --with-openssl-opt='enable-ktls threads -fPIC zlib-dynamic enable-zstd enable-brotli' \
+        --with-openssl-opt='enable-ktls threads enable-zlib enable-zstd enable-brotli -fPIC' \
         --add-module=$(MODULESDIR)/nginx_headers_more_module \
         --add-module=$(MODULESDIR)/nginx_dav_ext_module \
         --add-dynamic-module=$(MODULESDIR)/nginx_passenger \
@@ -75,7 +75,7 @@ config.status.nginx: config.env.nginx
         --add-dynamic-module=$(MODULESDIR)/nginx-http-auth-jwt-module \
         --add-dynamic-module=$(MODULESDIR)/nginx_njs/nginx \
         --with-cc-opt="$(CFLAGS)" \
-        --with-ld-opt="$(LDFLAGS) -lbrotlienc -lbrotlidec -lbrotlicommon -lzstd -lstdc++"
+        --with-ld-opt="$(LDFLAGS) -lbrotlienc -lbrotlidec -lbrotlicommon -lzstd"
         touch $@
 
 build-arch.%: config.status.%

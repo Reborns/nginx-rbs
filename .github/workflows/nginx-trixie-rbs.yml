@@ -11,7 +11,8 @@ on:
 
 jobs:
   check-version:
-    runs-on: ubuntu-latest
+    #runs-on: ubuntu-latest
+    runs-on: self-hosted
     outputs:
       should_run: ${{ steps.compare.outputs.should_run }}
       nginx_ver: ${{ steps.get_latest.outputs.ver }}
@@ -53,7 +54,8 @@ jobs:
     if: | 
       needs.check-version.outputs.should_run == 'true' || 
       github.event.inputs.force_build == 'true'
-    runs-on: ubuntu-latest
+    #runs-on: ubuntu-latest
+    runs-on: self-hosted
     permissions:
       contents: write
     container: debian:trixie

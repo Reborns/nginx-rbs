@@ -94,10 +94,9 @@ jobs:
       - name: Build Passenger Module (Parallel)
         run: |
           gem install passenger --no-document
-          PASSENGER_ROOT=$(gem env gemdir)/gems/$(gem list passenger | grep passenger | head -n 1 | awk '{print $1 "-" $2}' | tr -d '()')
-          PASSENGER_SRC="$PASSENGER_ROOT/src/nginx_module"
-          cd "$PASSENGER_SRC" && rake -sq nginx:as_dynamic_module CACHING=false -j$(nproc)
-          ln -sf  $PASSENGER_ROOT/src/nginx_module/ /opt/nginx-modules/nginx_passenger
+          PASSENGER_MODULE=$(passenger-config --nginx-addon-dir)
+          cd "PASSENGER_MODULE" && rake -sq nginx:as_dynamic_module CACHING=false
+          ln -sf $PASSENGER_MODULE /opt/nginx-modules/nginx_passenger
 
       - name: Fetch Nginx Source and Update Changelog
         run: |

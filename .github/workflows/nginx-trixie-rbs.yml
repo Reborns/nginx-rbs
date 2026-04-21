@@ -91,7 +91,7 @@ jobs:
           git clone -q --single-branch --depth 1 https://github.com/leev/ngx_http_geoip2_module.git /opt/nginx-modules/nginx_http_geoip2_module
           git clone -q --single-branch --depth 1 https://github.com/TeslaGov/ngx-http-auth-jwt-module.git /opt/nginx-modules/nginx-http-auth-jwt-module
 
-      - name: Build Passenger Module (Parallel)
+      - name: Build Passenger Module
         run: |
           gem install passenger --no-document
           PASSENGER_MODULE=$(passenger-config --nginx-addon-dir)

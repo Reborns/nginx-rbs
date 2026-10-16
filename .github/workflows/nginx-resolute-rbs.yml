@@ -1,0 +1,206 @@
+name: Build Nginx Ubuntu Resolute
+on:
+  schedule:
+    - cron: '0 4 * * *'  # Runs at 04:00 UTC daily
+  workflow_dispatch:
+    inputs:
+      force_build:
+        description: 'Force build even if versions match?'
+        type: boolean
+        default: false
+
+jobs:
+  check-version:
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.compare.outputs.should_run }}
+      nginx_ver: ${{ steps.get_latest.outputs.ver }}
+    steps:
+      - name: Get Latest Nginx Mainline Version
+        id: get_latest
+        run: |
+          # Your working query
+          VER=$(curl -s https://nginx.org/en/CHANGES | head -n 2 | grep -oP 'nginx \K[0-9.]+')
+          echo "ver=$VER" >> $GITHUB_OUTPUT
+          cat $GITHUB_OUTPUT
+
+      - name: Get Last Built resolute Version
+        id: get_last
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          LAST_TAG=$(curl -s -L \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${{ github.repository }}/tags" | \
+            jq -r '.[] | .name' | grep "\-resolute$" | head -n 1)
+          LAST_VER=${LAST_TAG%-resolute}
+          if [ -z "$LAST_VER" ]; then LAST_VER="0.0.0"; fi
+          echo "last=$LAST_VER" >> $GITHUB_OUTPUT
+          cat $GITHUB_OUTPUT
+          
+      - name: Compare Versions
+        id: compare
+        run: |
+          if [ "${{ steps.get_latest.outputs.ver }}" != "${{ steps.get_last.outputs.last }}" ]; then
+            echo "should_run=true" >> $GITHUB_OUTPUT
+          else
+            echo "should_run=false" >> $GITHUB_OUTPUT
+          fi
+  build:
+    needs: check-version
+    if: | 
+      needs.check-version.outputs.should_run == 'true' || 
+      github.event.inputs.force_build == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    container: ubuntu:resolute
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+
+      - name: Install Debian Build Stack
+        run: |
+          apt-get -qq update
+          DEBIAN_FRONTEND=noninteractive apt-get -qq install -y curl gnupg2 ca-certificates lsb-release ubuntu-keyring > /dev/null
+          curl https://nginx.org/keys/nginx_signing.key | gpg --dearmor \
+          | tee /usr/share/keyrings/nginx-archive-keyring.gpg >/dev/null
+          cat <<EOF > /etc/apt/sources.list.d/nginx.list
+          deb [signed-by=/usr/share/keyrings/nginx-archive-keyring.gpg] http://nginx.org/packages/mainline/ubuntu resolute nginx
+          deb-src [signed-by=/usr/share/keyrings/nginx-archive-keyring.gpg] http://nginx.org/packages/mainline/ubuntu resolute nginx
+          EOF
+          apt-get -qq update 
+          DEBIAN_FRONTEND=noninteractive apt-get -qq install -y dpkg-dev devscripts debhelper fakeroot ruby ruby-dev libxslt1-dev libjwt-dev \
+          build-essential quilt libpcre2-dev libcurl4-openssl-dev libssl-dev libbrotli-dev libzstd-dev zlib1g-dev git wget libmaxminddb-dev libjansson-dev > /dev/null
+    
+      - name: Get Latest OpenSSL Version
+        id: openssl_version
+        run: |
+          VERSION=$(curl -s https://openssl-library.org/source/ | grep -oP 'openssl-\K[0-9]+\.[0-9]+\.[0-9]+(?=\.tar\.gz)' | grep -v '^4'| head -n 1)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+      - name: Clone Fresh Modules
+        run: |
+          mkdir -p /opt/nginx-modules
+          wget -q -c https://github.com/openssl/openssl/releases/download/openssl-${{ steps.openssl_version.outputs.version }}/openssl-${{ steps.openssl_version.outputs.version }}.tar.gz  -O - | tar -xz -C /opt/nginx-modules/
+          git clone -q --single-branch --depth 1 https://github.com/nginx/njs.git /opt/nginx-modules/nginx_njs
+          git clone -q --single-branch --depth 1 https://github.com/openresty/headers-more-nginx-module.git /opt/nginx-modules/nginx_headers_more_module
+          git clone -q --single-branch --depth 1 https://github.com/arut/nginx-dav-ext-module.git /opt/nginx-modules/nginx_dav_ext_module
+          git clone -q --single-branch --depth 1 https://github.com/vozlt/nginx-module-vts.git /opt/nginx-modules/nginx_module_vts
+          git clone -q --single-branch --depth 1 https://github.com/leev/ngx_http_geoip2_module.git /opt/nginx-modules/nginx_http_geoip2_module
+          git clone -q --single-branch --depth 1 https://github.com/TeslaGov/ngx-http-auth-jwt-module.git /opt/nginx-modules/nginx-http-auth-jwt-module
+          git clone -q --single-branch --depth 1 https://github.com/google/ngx_brotli.git /opt/nginx-modules/ngx_brotli
+          # ngx_brotli looks for headers in its deps/brotli submodule. Point that at the
+          # distro's libbrotli-dev headers instead, so headers and the linked library
+          # are the same version and no submodule checkout is needed.
+          mkdir -p /opt/nginx-modules/ngx_brotli/deps/brotli/c/include
+          ln -sfn /usr/include/brotli /opt/nginx-modules/ngx_brotli/deps/brotli/c/include/brotli
+
+      - name: Build Passenger Module
+        run: |
+          gem install passenger --no-document
+          PASSENGER_MODULE=$(passenger-config --nginx-addon-dir)
+          cd "$PASSENGER_MODULE" && rake -sq nginx:as_dynamic_module CACHING=false
+          ln -sf $PASSENGER_MODULE /opt/nginx-modules/nginx_passenger
+
+      - name: Fetch Nginx Source and Update Changelog
+        run: |
+          apt-get source nginx
+          cd nginx-*/
+          export DEBFULLNAME="Nginx Packaging"
+          export DEBEMAIL="nginx-packaging@f5.com"
+          RAW_VERSION=$(dpkg-parsechangelog -S Version)
+          BASE_VERSION="${RAW_VERSION%~resolute}"
+          NEW_VERSION="${BASE_VERSION}~rbs~resolute"
+          dch --newversion "$NEW_VERSION" --distribution "resolute" --force-distribution --force-bad-version "Build for version $BASE_VERSION by RBS."
+          cp ../rules-resolute debian/rules
+          sed -i 's|/openssl-[0-9.]*|/openssl-${{ steps.openssl_version.outputs.version }}|g' debian/rules
+          rm -rf debian/files
+          cp ../passenger.conf.example debian/passenger.conf.example
+          sed -i '/Package: nginx-dbg/,/^$/d' debian/control
+          sed -i '/build-nginx-debug/,/^$/d' debian/nginx.install
+          sed -i 's/^[ ]\+/\t/g' debian/rules
+          cat -A debian/rules | head -n 50 | grep '\^I' || echo "Warning: No tabs found!"
+          chmod +x debian/rules
+          # Download and install OpenRepo CLI
+          curl -L https://github.com/openkilt/openrepo/releases/download/v1.0.0/openrepo_cli_$(uname -m) -o /usr/local/bin/openrepo
+          chmod +x /usr/local/bin/openrepo
+
+      - name: Run dpkg-buildpackage
+        run: |
+          cd nginx-*/
+          dpkg-buildpackage -rfakeroot -uc -us -b -j$(nproc)
+       
+      - name: Create Release with Distro Tag
+        uses: softprops/action-gh-release@v3.0.0
+        with:
+          tag_name: ${{ needs.check-version.outputs.nginx_ver }}-resolute
+          name: "Nginx ${{ needs.check-version.outputs.nginx_ver }} (ubuntu resolute)"
+          body: "Automated build of Nginx Mainline ${{ needs.check-version.outputs.nginx_ver }} for Ubuntu 26.04 resolute"
+          generate_release_notes: false
+          files: ./*.deb
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}   
+          
+      - name: Upload DEB to Schizoid Host
+        uses: appleboy/scp-action@v1.0.0
+        with:
+          host: ${{ secrets.REPO_HOST }}
+          username: ${{ secrets.REPO_USER }}
+          key: ${{ secrets.REPO_SSH_KEY }}
+          source: "./*.deb"
+          target: "/tmp/nginx-build-${{ github.run_id }}"
+          
+      - name: Set Permissions on Remote Host and adding to OpenRepo
+        uses: appleboy/ssh-action@v1.2.5
+        with:
+          host: ${{ secrets.REPO_HOST }}
+          username: ${{ secrets.REPO_USER }}
+          key: ${{ secrets.REPO_SSH_KEY }}
+          script: |
+            DL_DIR="${{ secrets.DOWNLOAD_DIR }}"
+            DL_OWNER="${{ secrets.DOWNLOAD_OWNER }}"
+            # Refuse to run with an empty or relative path: the find -delete below
+            # would otherwise run against / or the login directory.
+            case "$DL_DIR" in
+              /?*) ;;
+              *) echo "Error: DOWNLOAD_DIR secret is empty or not an absolute path."; exit 1 ;;
+            esac
+            [ -d "$DL_DIR" ] || { echo "Error: download directory does not exist."; exit 1; }
+            [ -n "$DL_OWNER" ] || { echo "Error: DOWNLOAD_OWNER secret is not set (expected user:group)."; exit 1; }
+            find "$DL_DIR" -maxdepth 1 -name "*resolute*.deb" -type f -delete
+            UPLOAD_DIR="/tmp/nginx-build-${{ github.run_id }}"
+            if [ ! -d "$UPLOAD_DIR" ]; then
+              echo "Error: Upload directory $UPLOAD_DIR not found."
+              exit 1
+            fi
+            for deb in $UPLOAD_DIR/*.deb; do
+              echo "Uploading $(basename "$deb")..."
+              openrepo -k "${{ secrets.OPENREPO_KEY }}" -s "${{ secrets.OPENREPO_HOST }}" upload -r resolute -o "$deb"
+              cp -f "$deb" "$DL_DIR/"
+              sudo chown "$DL_OWNER" "$DL_DIR"/*.deb
+            done  
+            sed -i 's/openssl-[0-9.]*/openssl-${{ steps.openssl_version.outputs.version }}/g' "$DL_DIR/_h5ai.header.html"
+            rm -rf "$UPLOAD_DIR"
+      - name: Notify on Successful Build
+        if: success()
+        uses: dawidd6/action-send-mail@v13
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.MAIL_USERNAME }}   
+          password: ${{ secrets.MAIL_PASSWORD }}
+          to: ${{ secrets.NOTIFY_EMAIL }}
+          from: GitHub Actions <${{ secrets.NOTIFY_EMAIL }}>
+          subject: "✅ Nginx ${{ needs.check-version.outputs.nginx_ver }} built for Ubuntu Resolute"
+          body: |
+            A new Nginx build completed successfully.
+
+            Version: ${{ needs.check-version.outputs.nginx_ver }}
+            Distro: Ubuntu 26.04 Resolute
+            Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+            Packages have been uploaded to OpenRepo and your download server.    

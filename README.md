@@ -1,10 +1,12 @@
 [![Build Nginx Trixie](https://github.com/Reborns/nginx-rbs/actions/workflows/nginx-trixie-rbs.yml/badge.svg)](https://github.com/Reborns/nginx-rbs/actions/workflows/nginx-trixie-rbs.yml) \
 [![Build Nginx Bookworm](https://github.com/Reborns/nginx-rbs/actions/workflows/nginx-bookworm-rbs.yml/badge.svg)](https://github.com/Reborns/nginx-rbs/actions/workflows/nginx-bookworm-rbs.yml) \
+[![Build Nginx Ubuntu Noble](https://github.com/Reborns/nginx-rbs/actions/workflows/nginx-noble-rbs.yml/badge.svg)](https://github.com/Reborns/nginx-rbs/actions/workflows/nginx-noble-rbs.yml) \
+[![Build Nginx Ubuntu Resolute](https://github.com/Reborns/nginx-rbs/actions/workflows/nginx-resolute-rbs.yml/badge.svg)](https://github.com/Reborns/nginx-rbs/actions/workflows/nginx-resolute-rbs.yml) \
 [![Build Nginx Docker Trixie](https://github.com/Reborns/nginx-rbs/actions/workflows/nginx-docker-trixie-rbs.yml/badge.svg)](https://github.com/Reborns/nginx-rbs/actions/workflows/nginx-docker-trixie-rbs.yml)
 
 # nginx-rbs
 
-Custom builds of **nginx mainline** for Debian, packaged as `.deb` and as a container image.
+Custom builds of **nginx mainline** for Debian and Ubuntu, packaged as `.deb` and as a container image.
 Each build is statically linked against the latest **OpenSSL 3.x** and ships extra modules
 that the stock nginx.org packages don't include.
 
@@ -14,14 +16,16 @@ New packages are built automatically when a new nginx mainline version is releas
 
 All current packages are available at **https://dl.schizoid.cc/utils/webservers/nginx/**
 
-| Distribution     | Package                                    | Arch  |
-| ---------------- | ------------------------------------------ | ----- |
-| Debian 13 trixie | `nginx_<version>-1~rbs~trixie_amd64.deb`   | amd64 |
-| Debian 12 bookworm | `nginx_<version>-1~rbs~bookworm_amd64.deb` | amd64 |
+| Distribution             | Package                                    | Arch  |
+| ------------------------ | ------------------------------------------ | ----- |
+| Debian 13 trixie         | `nginx_<version>-1~rbs~trixie_amd64.deb`   | amd64 |
+| Debian 12 bookworm       | `nginx_<version>-1~rbs~bookworm_amd64.deb` | amd64 |
+| Ubuntu 26.04 resolute    | `nginx_<version>-1~rbs~resolute_amd64.deb` | amd64 |
+| Ubuntu 24.04 noble       | `nginx_<version>-1~rbs~noble_amd64.deb`    | amd64 |
 
 The download page always holds only the newest build for each distribution.
 The same `.deb` files are also attached to every [release](https://github.com/Reborns/nginx-rbs/releases)
-(`<version>-trixie` / `<version>-bookworm`).
+(`<version>-trixie`, `<version>-bookworm`, `<version>-resolute`, `<version>-noble`).
 
 ## Install
 

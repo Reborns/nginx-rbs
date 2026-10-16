@@ -36,10 +36,7 @@ Debian 12/13 and Ubuntu 24.04/26.04; the script detects the release itself:
 curl -fsSL https://raw.githubusercontent.com/Reborns/nginx-rbs/master/setup-apt.sh | sudo bash
 sudo apt install nginx
 ```
-
-It writes the repo as a deb822 `/etc/apt/sources.list.d/nginx-rbs.sources`, the key to
-`/etc/apt/keyrings/nginx-rbs.asc`, and a pin in `/etc/apt/preferences.d/nginx-rbs` so these
-builds win over nginx.org's and the distribution's nginx. Read [setup-apt.sh](setup-apt.sh) first if you prefer.
+Read [setup-apt.sh](setup-apt.sh) first if you prefer.
 
 **Single package**, without the repository:
 

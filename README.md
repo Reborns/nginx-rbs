@@ -29,6 +29,20 @@ The same `.deb` files are also attached to every [release](https://github.com/Re
 
 ## Install
 
+**From the apt repository** (recommended, gets updates with `apt upgrade`). One command for
+Debian 12/13 and Ubuntu 24.04/26.04; the script detects the release itself:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Reborns/nginx-rbs/master/setup-apt.sh | sudo bash
+sudo apt install nginx
+```
+
+It writes the repo as a deb822 `/etc/apt/sources.list.d/nginx-rbs.sources`, the key to
+`/etc/apt/keyrings/nginx-rbs.asc`, and a pin in `/etc/apt/preferences.d/nginx-rbs` so these
+builds win over nginx.org's and the distribution's nginx. Read [setup-apt.sh](setup-apt.sh) first if you prefer.
+
+**Single package**, without the repository:
+
 ```bash
 # pick the file for your distribution from the download page
 wget https://dl.schizoid.cc/utils/webservers/nginx/nginx_<version>-1~rbs~trixie_amd64.deb

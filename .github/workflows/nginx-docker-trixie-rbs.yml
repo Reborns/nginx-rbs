@@ -1,0 +1,306 @@
+name: Build Nginx Docker Trixie
+
+# Container counterpart to nginx-trixie-rbs.yml. Fully independent of the .deb
+# pipeline: nothing here reads OpenRepo, the download host, or any .deb artifact.
+# nginx is compiled from the upstream source tarball with the same configure
+# flags, hardening flags and OpenSSL options as rules-trixie.
+#
+# Differences from the .deb workflow, all deliberate:
+#   - versions are validated, not assumed: an empty scrape fails the run
+#   - tarball digests are pinned and enforced by the Dockerfile, not trusted
+#   - the registry, not a git tag list, is the source of truth for what is
+#     already published
+#   - the image is smoke-tested before it is pushed, never after
+#   - failures notify; the .deb workflow only mails on success
+#
+# The nginx version is the only build trigger. Each build compiles against
+# whatever OpenSSL 3.x is current; an OpenSSL release alone does not rebuild.
+# Use force_build for that.
+
+on:
+  schedule:
+    # 05:00 UTC, an hour after the .deb build so the two never contend.
+    - cron: '0 5 * * *'
+  workflow_dispatch:
+    inputs:
+      force_build:
+        description: 'Force build even if this version is already published?'
+        type: boolean
+        default: false
+
+# Never let two image builds race to the same tag.
+concurrency:
+  group: nginx-docker-trixie
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: reborns/nginx-rbs
+  DEBIAN_SUITE: trixie
+
+jobs:
+  resolve:
+    name: Resolve versions
+    runs-on: ubuntu-latest
+    outputs:
+      nginx_version: ${{ steps.nginx.outputs.version }}
+      nginx_sha256: ${{ steps.digests.outputs.nginx_sha256 }}
+      openssl_version: ${{ steps.openssl.outputs.version }}
+      openssl_sha256: ${{ steps.digests.outputs.openssl_sha256 }}
+      version_tag: ${{ steps.decide.outputs.version_tag }}
+      should_run: ${{ steps.decide.outputs.should_run }}
+    steps:
+      - name: Resolve latest nginx mainline
+        id: nginx
+        run: |
+          set -euo pipefail
+          VER="$(curl -fsS --retry 3 --retry-delay 2 https://nginx.org/en/CHANGES \
+                 | head -n 5 \
+                 | grep -oP 'nginx \K[0-9]+\.[0-9]+\.[0-9]+' \
+                 | head -n 1 || true)"
+          if [[ ! "$VER" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::could not parse an nginx version from nginx.org/en/CHANGES (got '${VER}')"
+            exit 1
+          fi
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+          echo "nginx mainline: $VER"
+
+      - name: Resolve latest OpenSSL 3.x
+        id: openssl
+        run: |
+          set -euo pipefail
+          # sort -V rather than trusting page order, and an explicit 3.x match
+          # rather than excluding 4 by prefix.
+          VER="$(curl -fsS --retry 3 --retry-delay 2 https://openssl-library.org/source/ \
+                 | grep -oP 'openssl-\K3\.[0-9]+\.[0-9]+(?=\.tar\.gz)' \
+                 | sort -V | tail -n 1 || true)"
+          if [[ ! "$VER" =~ ^3\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::warning::openssl-library.org scrape failed, falling back to the GitHub releases API"
+            VER="$(curl -fsS --retry 3 \
+                     -H 'Accept: application/vnd.github+json' \
+                     'https://api.github.com/repos/openssl/openssl/releases?per_page=50' \
+                   | grep -oP '"tag_name":\s*"openssl-\K3\.[0-9]+\.[0-9]+' \
+                   | sort -V | tail -n 1 || true)"
+          fi
+          if [[ ! "$VER" =~ ^3\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::could not resolve an OpenSSL 3.x version (got '${VER}')"
+            exit 1
+          fi
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+          echo "openssl: $VER"
+
+      - name: Checksum source tarballs
+        id: digests
+        env:
+          NGINX_VERSION: ${{ steps.nginx.outputs.version }}
+          OPENSSL_VERSION: ${{ steps.openssl.outputs.version }}
+        run: |
+          set -euo pipefail
+          work="$(mktemp -d)"; cd "$work"
+
+          curl -fsSL --retry 3 -o nginx.tar.gz \
+            "https://nginx.org/download/nginx-${NGINX_VERSION}.tar.gz"
+          curl -fsSL --retry 3 -o openssl.tar.gz \
+            "https://github.com/openssl/openssl/releases/download/openssl-${OPENSSL_VERSION}/openssl-${OPENSSL_VERSION}.tar.gz"
+
+          # OpenSSL publishes a .sha256 next to each release asset — use it.
+          if curl -fsSL --retry 3 -o openssl.sha256 \
+               "https://github.com/openssl/openssl/releases/download/openssl-${OPENSSL_VERSION}/openssl-${OPENSSL_VERSION}.tar.gz.sha256"; then
+            expected="$(tr -d '[:space:]' < openssl.sha256 | grep -oE '^[0-9a-f]{64}' || true)"
+            actual="$(sha256sum openssl.tar.gz | cut -d' ' -f1)"
+            if [ -n "$expected" ] && [ "$expected" != "$actual" ]; then
+              echo "::error::OpenSSL tarball digest mismatch: upstream says ${expected}, got ${actual}"
+              exit 1
+            fi
+            echo "OpenSSL digest matches upstream .sha256"
+          else
+            echo "::warning::no upstream .sha256 for OpenSSL ${OPENSSL_VERSION}; pinning the digest we downloaded"
+          fi
+
+          # No signature check on the nginx tarball by request. The digest below
+          # is therefore an integrity check between this job and the build, not
+          # provenance: it guarantees the Dockerfile compiles exactly the bytes
+          # resolved here, and makes a truncated or corrupted transfer fail the
+          # build. The OpenSSL digest above is compared against upstream's own
+          # published .sha256, so that one is provenance.
+          echo "nginx_sha256=$(sha256sum nginx.tar.gz | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          echo "openssl_sha256=$(sha256sum openssl.tar.gz | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v4.6.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Decide whether to build
+        id: decide
+        env:
+          NGINX_VERSION: ${{ steps.nginx.outputs.version }}
+          OPENSSL_VERSION: ${{ steps.openssl.outputs.version }}
+          FORCE: ${{ github.event.inputs.force_build }}
+        run: |
+          set -euo pipefail
+          VERSION_TAG="${NGINX_VERSION}-${DEBIAN_SUITE}"
+          echo "version_tag=$VERSION_TAG" >> "$GITHUB_OUTPUT"
+
+          # Always record the verdict in the run summary. A skipped publish must
+          # not be indistinguishable from a successful one: when should_run is
+          # false, build and notify skip and GitHub renders the run green, which
+          # previously looked exactly like "published".
+          decide() {
+            echo "should_run=$1" >> "$GITHUB_OUTPUT"
+            {
+              echo "### Publish decision"
+              echo
+              echo "| | |"
+              echo "|---|---|"
+              echo "| nginx | \`${NGINX_VERSION}\` |"
+              echo "| OpenSSL | \`${OPENSSL_VERSION}\` |"
+              echo "| Target | \`${IMAGE}:${VERSION_TAG}\` |"
+              echo "| Will build | **$1** |"
+              echo "| Reason | $2 |"
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "decision: should_run=$1 ($2)"
+          }
+
+          if [ "${FORCE:-false}" = "true" ]; then
+            decide true "forced via workflow_dispatch"
+            exit 0
+          fi
+
+          # The nginx version is the ONLY build trigger. Whatever OpenSSL 3.x is
+          # current at build time gets compiled in, but an OpenSSL release on its
+          # own does not cause a rebuild. To rebuild the same nginx version
+          # against a newer OpenSSL, dispatch with force_build.
+          #
+          # The registry is the source of truth for what is published, so there
+          # is no local tag list to drift out of sync.
+          if docker buildx imagetools inspect "${IMAGE}:${VERSION_TAG}" >/dev/null 2>&1; then
+            decide false "${VERSION_TAG} already published; nginx version unchanged"
+          else
+            decide true "${VERSION_TAG} not published"
+          fi
+
+  build:
+    name: Build, test and push
+    needs: resolve
+    if: needs.resolve.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        # Pin third-party and first-party actions to a commit SHA before this
+        # goes anywhere near production credentials — a moved tag is a supply
+        # chain problem. Tags are used here only so the file is readable.
+        uses: actions/checkout@v6
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v4.3.0
+
+      - name: Record build timestamp
+        run: echo "BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v4.6.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Build and load locally first. Nothing reaches Docker Hub until the smoke
+      # test has passed against this exact image.
+      - name: Build image
+        uses: docker/build-push-action@v7.3.0
+        with:
+          context: ./docker
+          file: ./docker/Dockerfile
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: nginx-rbs:candidate
+          provenance: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            DEBIAN_SUITE=${{ env.DEBIAN_SUITE }}
+            NGINX_VERSION=${{ needs.resolve.outputs.nginx_version }}
+            NGINX_SHA256=${{ needs.resolve.outputs.nginx_sha256 }}
+            OPENSSL_VERSION=${{ needs.resolve.outputs.openssl_version }}
+            OPENSSL_SHA256=${{ needs.resolve.outputs.openssl_sha256 }}
+            BUILD_DATE=${{ env.BUILD_DATE }}
+            VCS_REF=${{ github.sha }}
+
+      - name: Smoke test
+        run: |
+          chmod +x docker/smoke-test.sh
+          ./docker/smoke-test.sh \
+            nginx-rbs:candidate \
+            "${{ needs.resolve.outputs.nginx_version }}" \
+            "${{ needs.resolve.outputs.openssl_version }}"
+
+      - name: Tag and push
+        env:
+          VERSION_TAG: ${{ needs.resolve.outputs.version_tag }}
+        run: |
+          set -euo pipefail
+          # Two tags, by design. Edit this array to change the tag policy.
+          #
+          # <nginx>-trixie  the version people pin; re-pushed in place if the
+          #                 same nginx is rebuilt against a newer OpenSSL
+          # latest          always the newest build
+          #
+          # `latest` is only unambiguous because trixie is the sole suite built
+          # here. If bookworm or bullseye is ever added to this workflow, latest
+          # has to be reconsidered or it means "whichever ran last".
+          TAGS=( "${VERSION_TAG}" "latest" )
+          for t in "${TAGS[@]}"; do
+            echo "pushing ${IMAGE}:${t}"
+            docker tag nginx-rbs:candidate "${IMAGE}:${t}"
+            docker push "${IMAGE}:${t}"
+          done
+
+      - name: Summary
+        if: always()
+        env:
+          NGINX_VERSION: ${{ needs.resolve.outputs.nginx_version }}
+          OPENSSL_VERSION: ${{ needs.resolve.outputs.openssl_version }}
+        run: |
+          {
+            echo "### nginx-rbs container"
+            echo
+            echo "| | |"
+            echo "|---|---|"
+            echo "| nginx | \`${NGINX_VERSION}\` |"
+            echo "| OpenSSL | \`${OPENSSL_VERSION}\` |"
+            echo "| Debian | \`${DEBIAN_SUITE}\` |"
+            echo "| Tags | \`${IMAGE}:${NGINX_VERSION}-${DEBIAN_SUITE}\`, \`${IMAGE}:latest\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  notify:
+    name: Notify
+    needs: [resolve, build]
+    if: always() && needs.resolve.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mail result
+        uses: dawidd6/action-send-mail@v18
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          to: ${{ secrets.NOTIFY_EMAIL }}
+          from: GitHub Actions <${{ secrets.NOTIFY_EMAIL }}>
+          subject: >-
+            ${{ needs.build.result == 'success' && '✅' || '❌' }}
+            nginx-rbs image ${{ needs.resolve.outputs.nginx_version }}
+            (trixie) — ${{ needs.build.result }}
+          body: |
+            Container build for Debian Trixie finished with: ${{ needs.build.result }}
+
+            nginx:   ${{ needs.resolve.outputs.nginx_version }}
+            OpenSSL: ${{ needs.resolve.outputs.openssl_version }}
+            Image:   ${{ env.IMAGE }}:${{ needs.resolve.outputs.nginx_version }}-trixie
+
+            Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}

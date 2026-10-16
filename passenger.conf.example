@@ -1,0 +1,23 @@
+#  Copy load_module line to nginx.conf right above http section and uncomment  to load passenger module
+
+# ---  Passenger version 6.1.2 ---
+
+#load_module modules/ngx_http_passenger_module.so;
+
+
+# Passenger Example config
+
+
+#       http {
+#               passenger_root /usr/local/rvm/gems/ruby-2.3.3/gems/passenger-5.2.1;
+#               passenger_ruby /usr/local/rvm/gems/ruby-2.3.3/wrappers/ruby;
+#               passenger_pre_start http://example.com;
+#               passenger_max_pool_size 5;
+#       }
+
+
+#       server {
+#               passenger_enabled on;
+#               passenger_min_instances 5;
+#               rails_env production
+#       }

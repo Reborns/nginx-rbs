@@ -10,7 +10,6 @@
 #   /etc/apt/sources.list.d/nginx-rbs.sources   repo, deb822 format
 #   /etc/apt/preferences.d/nginx-rbs            pin: prefer nginx-rbs over nginx.org / distro nginx
 #
-# Safe to re-run. Set APT_HOST to point at a different OpenRepo host.
 
 set -euo pipefail
 
@@ -53,17 +52,10 @@ grep -q -- '-----BEGIN PGP PUBLIC KEY BLOCK-----' "$tmpkey" \
   || die "${REPO_URL}public.gpg is not an ASCII-armored PGP key"
 install -m 0644 "$tmpkey" "$KEY"
 
-# Only now that the key is good, remove what OpenRepo's own instructions or an
-# older setup may have left behind.
-# The same repo listed twice with different keys makes apt refuse with
-# "Conflicting values set for option Signed-By".
 rm -f "/etc/apt/sources.list.d/openrepo-$CODENAME.list" \
       "/usr/share/keyrings/openrepo-$CODENAME.gpg" \
       /etc/apt/sources.list.d/nginx-rbs.list
 
-# Architectures must be "any", NOT $(dpkg --print-architecture): OpenRepo publishes
-# its package index only under binary-any, and with amd64 apt fetches nothing and
-# reports no error.
 cat > "$SOURCES" <<EOF
 Types: deb
 URIs: $REPO_URL
@@ -73,9 +65,6 @@ Architectures: any
 Signed-By: $KEY
 EOF
 
-# nginx.org's 1.x.y-1~trixie / ~resolute sort above 1.x.y-1~rbs~trixie / ~resolute,
-# and any newer nginx.org release beats ours on every distro. 1001 also lets apt
-# switch a host that already runs nginx.org's package.
 cat > "$PIN" <<EOF
 Package: nginx*
 Pin: origin $ORIGIN

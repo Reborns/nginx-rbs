@@ -2,7 +2,7 @@ name: Cleanup Nginx Workflow Runs
 
 on:
   schedule:
-    - cron: '0 0 * * *'
+    - cron: '13 0 * * *'  # 00:13 UTC, off the full hour
   workflow_dispatch:
 
 jobs:

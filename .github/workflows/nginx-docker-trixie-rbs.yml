@@ -19,8 +19,9 @@ name: Build Nginx Docker Trixie
 
 on:
   schedule:
-    # 05:00 UTC, an hour after the .deb build so the two never contend.
-    - cron: '0 5 * * *'
+    # 04:47 UTC, well after the 03:23 .deb builds so the two never contend, and off
+    # the full hour, when GitHub delays scheduled runs the most.
+    - cron: '47 4 * * *'
   workflow_dispatch:
     inputs:
       force_build:

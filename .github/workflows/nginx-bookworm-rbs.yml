@@ -1,7 +1,9 @@
 name: Build Nginx Bookworm
 on:
   schedule:
-    - cron: '0 4 * * *'  # Runs at 04:00 UTC daily
+    # 03:23 UTC daily. Off the full hour on purpose: GitHub delays scheduled runs
+    # most at :00 (these ran ~5h late at 04:00) and may drop them under load.
+    - cron: '23 3 * * *'
   workflow_dispatch:
     inputs:
       force_build:
@@ -42,12 +44,30 @@ jobs:
           
       - name: Compare Versions
         id: compare
+        env:
+          LATEST: ${{ steps.get_latest.outputs.ver }}
+          LAST: ${{ steps.get_last.outputs.last }}
+          FORCE: ${{ github.event.inputs.force_build }}
         run: |
-          if [ "${{ steps.get_latest.outputs.ver }}" != "${{ steps.get_last.outputs.last }}" ]; then
+          # An empty version means the nginx.org lookup failed. Without this check it
+          # would differ from the last tag and start a build tagged "-bookworm".
+          if [ -z "$LATEST" ]; then
+            echo "::error::could not read the nginx mainline version from nginx.org/en/CHANGES"
+            exit 1
+          fi
+          if [ "$LATEST" != "$LAST" ]; then
             echo "should_run=true" >> $GITHUB_OUTPUT
+            REASON="**building**: nginx $LATEST is new (last built: $LAST)"
           else
             echo "should_run=false" >> $GITHUB_OUTPUT
+            if [ "$FORCE" = "true" ]; then
+              REASON="**building**: nginx $LATEST was already built, rebuilding because force_build is set"
+            else
+              REASON="**skipped**: nginx $LATEST is already built (tag $LATEST-bookworm exists)"
+            fi
           fi
+          echo "### bookworm: $REASON" >> "$GITHUB_STEP_SUMMARY"
+          echo "$REASON"
   build:
     needs: check-version
     if: | 

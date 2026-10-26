@@ -55,13 +55,14 @@ for flag in \
   "enable-zstd" \
   "enable-brotli" \
   nginx_headers_more_module \
-  nginx_dav_ext_module \
   ngx_brotli \
   nginx_passenger \
   nginx_module_vts \
   nginx_http_geoip2_module \
   nginx-http-auth-jwt-module \
-  nginx_njs
+  nginx_njs \
+  ngx_devel_kit \
+  lua-nginx-module
 do
   grep -q -- "$flag" <<<"$VOUT" || fail "configure line is missing: $flag"
   pass "$flag"
@@ -158,6 +159,35 @@ docker run --rm --user root --entrypoint sh "$IMAGE" -c '
   nginx -t
 ' || fail "brotli directives rejected — ngx_brotli is not compiled in"
 pass "brotli / brotli_static directives accepted"
+
+# Lua is checked by serving a request, not by nginx -t: with the bundled
+# lua-resty-core missing or mismatched, nginx -t still passes but nginx itself
+# refuses to start. ngx.re and ngx.shared exercise resty.core; set_by_lua
+# exercises ngx_devel_kit; lrucache exercises the second bundled library.
+LUA_OUT="$(docker run --rm --user root --entrypoint sh "$IMAGE" -c '
+  cat > /etc/nginx/conf.d/zz-lua-test.conf <<EOF
+lua_shared_dict rbs_test 1m;
+server {
+  listen 8099;
+  location = /lua {
+    set_by_lua_block \$answer { return tostring(6 * 7) }
+    content_by_lua_block {
+      local lru = require("resty.lrucache").new(1)
+      lru:set("k", "lru")
+      ngx.shared.rbs_test:set("k", "shm")
+      local m = ngx.re.match("v1.2", [[(\d+)\.(\d+)]], "jo")
+      ngx.say(package.loaded["resty.core"] and "core" or "nocore", " ",
+              m[2], " ", ngx.var.answer, " ", ngx.shared.rbs_test:get("k"), " ", (lru:get("k")))
+    }
+  }
+}
+EOF
+  nginx 2>/tmp/nginx.err || { cat /tmp/nginx.err; exit 1; }
+  sleep 1
+  curl -fsS http://127.0.0.1:8099/lua
+' 2>&1)" || fail "Lua test request failed: ${LUA_OUT}"
+[ "$LUA_OUT" = "core 2 42 shm lru" ] || fail "unexpected Lua output: '${LUA_OUT}'"
+pass "lua: resty.core, ngx.re, shared dict, lrucache and set_by_lua (NDK) all work"
 
 # Logs must reach stdout/stderr or nothing is observable in Kubernetes.
 #

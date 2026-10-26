@@ -58,7 +58,6 @@ The package replaces nginx from nginx.org and keeps the standard layout
 
 **Built-in modules**
 - [headers-more](https://github.com/openresty/headers-more-nginx-module)
-- [dav-ext](https://github.com/arut/nginx-dav-ext-module)
 - [brotli](https://github.com/google/ngx_brotli) — `brotli` (on-the-fly) and `brotli_static` (pre-compressed `.br` files)
 - All standard nginx.org modules: realip, auth_request, sub, slice, secure_link, gzip_static, mp4, stream (ssl, ssl_preread, realip), mail, and more
 
@@ -71,6 +70,8 @@ The package replaces nginx from nginx.org and keeps the standard layout
 | [GeoIP2](https://github.com/leev/ngx_http_geoip2_module) | `ngx_http_geoip2_module.so`, `ngx_stream_geoip2_module.so` |
 | [Auth JWT](https://github.com/TeslaGov/ngx-http-auth-jwt-module) | `ngx_http_auth_jwt_module.so` |
 | [njs](https://github.com/nginx/njs) | `ngx_http_js_module.so`, `ngx_stream_js_module.so` |
+| [ngx_devel_kit](https://github.com/vision5/ngx_devel_kit) | `ndk_http_module.so` (load before Lua) |
+| [Lua](https://github.com/openresty/lua-nginx-module) | `ngx_http_lua_module.so` |
 
 Load them at the top of `/etc/nginx/nginx.conf`, for example:
 
@@ -78,6 +79,20 @@ Load them at the top of `/etc/nginx/nginx.conf`, for example:
 load_module modules/ngx_http_vhost_traffic_status_module.so;
 load_module modules/ngx_http_geoip2_module.so;
 ```
+
+**Lua** needs `ndk_http_module.so` loaded first, otherwise nginx stops with
+`undefined symbol: ndk_set_var_value`:
+
+```nginx
+load_module modules/ndk_http_module.so;
+load_module modules/ngx_http_lua_module.so;
+```
+
+The Lua module is built against OpenResty's LuaJIT, linked in statically, so no
+LuaJIT package is needed. The matching `lua-resty-core` and `lua-resty-lrucache`
+ship in `/usr/share/nginx-rbs/lua`, which is compiled into the module's default
+`package.path`; no `lua_package_path` is needed for them. Libraries from distro
+packages in `/usr/share/lua/5.1` are found too.
 
 An example Passenger config is installed as `/etc/nginx/conf.d/passenger.conf.example`.
 

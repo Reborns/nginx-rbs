@@ -21,8 +21,8 @@ the download host. Parity with `rules-trixie` is maintained by:
 | | |
 |---|---|
 | OpenSSL | latest 3.x, in-tree, ktls + zlib + zstd + brotli |
-| Static modules | `headers-more`, `dav-ext`, `brotli` (filter + static) |
-| Dynamic modules | `njs` (http + stream), `VTS`, `GeoIP2` (http + stream), `auth-JWT`, `Passenger` |
+| Static modules | `headers-more`, `brotli` (filter + static) |
+| Dynamic modules | `njs` (http + stream), `Lua` (+ `ngx_devel_kit`), `VTS`, `GeoIP2` (http + stream), `auth-JWT`, `Passenger` |
 | HTTP/3 | yes — `--with-http_v3_module`; `443/udp` is exposed |
 | Base | `debian:trixie-slim` |
 | Platform | `linux/amd64` |
@@ -118,8 +118,14 @@ docker run --rm reborns/nginx-rbs:latest \
 ```
 
 To pin instead, set any of the `*_REF` build args (`NJS_REF`,
-`HEADERS_MORE_REF`, `DAV_EXT_REF`, `VTS_REF`, `GEOIP2_REF`, `AUTH_JWT_REF`,
-`BROTLI_REF`, `PASSENGER_VERSION`) to a tag or commit SHA.
+`HEADERS_MORE_REF`, `VTS_REF`, `GEOIP2_REF`, `AUTH_JWT_REF`, `BROTLI_REF`,
+`PASSENGER_VERSION`) to a tag or commit SHA.
+
+The Lua stack is the exception: `LUA_NGINX_MODULE_REF`, `LUA_RESTY_CORE_REF`,
+`LUA_RESTY_LRUCACHE_REF`, `NDK_REF` and `LUAJIT_REF` are pinned by default,
+because lua-resty-core must match lua-nginx-module exactly or nginx refuses to
+start. Bump them as a set, together with the same pins in the `.deb`
+workflows; the build fails if the pair does not match.
 
 ## Building locally
 

@@ -32,11 +32,18 @@ ARG PASSENGER_VERSION=""
 # pipeline does today. Set any of these to a tag or commit SHA to pin.
 ARG NJS_REF=""
 ARG HEADERS_MORE_REF=""
-ARG DAV_EXT_REF=""
 ARG VTS_REF=""
 ARG GEOIP2_REF=""
 ARG AUTH_JWT_REF=""
 ARG BROTLI_REF=""
+# The Lua stack is pinned, not floating: lua-resty-core must match
+# lua-nginx-module's version exactly or nginx refuses to start. Bump as a set,
+# together with the .deb workflows; the build checks the pair.
+ARG LUA_NGINX_MODULE_REF="v0.10.31"
+ARG LUA_RESTY_CORE_REF="v0.1.34rc3"
+ARG LUA_RESTY_LRUCACHE_REF="v0.15"
+ARG NDK_REF="v0.3.4"
+ARG LUAJIT_REF="v2.1-20260917"
 
 ENV MODULES_DIR=/opt/nginx-modules \
     DEBIAN_FRONTEND=noninteractive
@@ -56,9 +63,9 @@ RUN for v in NGINX_VERSION NGINX_SHA256 OPENSSL_VERSION OPENSSL_SHA256; do \
 # dpkg-dev which we keep in order to read dpkg-buildflags.
 #
 # libxslt1-dev is REQUIRED and is not there for --with-http_xslt_module, which
-# this build does not enable. nginx-dav-ext-module's own `config` script sets
-# USE_LIBXSLT=YES for its PROPFIND XML handling, which makes nginx's configure
-# run the libxml2/libxslt probe and hard-fail when it is absent:
+# this build does not enable. njs's nginx `config` defaults NJS_LIBXSLT=YES for
+# its xml module, which makes nginx's configure run the libxml2/libxslt probe
+# and hard-fail when it is absent:
 #     ./configure: error: the HTTP XSLT module requires the libxml2/libxslt
 # That is why the .deb pipeline installs libxslt-dev despite passing no XSLT
 # flag. Do not trim it by reading the configure line alone.
@@ -123,7 +130,6 @@ RUN set -euo pipefail; \
     }; \
     clone https://github.com/nginx/njs.git                          "$NJS_REF"           "$MODULES_DIR/nginx_njs"; \
     clone https://github.com/openresty/headers-more-nginx-module.git "$HEADERS_MORE_REF" "$MODULES_DIR/nginx_headers_more_module"; \
-    clone https://github.com/arut/nginx-dav-ext-module.git          "$DAV_EXT_REF"       "$MODULES_DIR/nginx_dav_ext_module"; \
     clone https://github.com/vozlt/nginx-module-vts.git             "$VTS_REF"           "$MODULES_DIR/nginx_module_vts"; \
     clone https://github.com/leev/ngx_http_geoip2_module.git        "$GEOIP2_REF"        "$MODULES_DIR/nginx_http_geoip2_module"; \
     clone https://github.com/TeslaGov/ngx-http-auth-jwt-module.git  "$AUTH_JWT_REF"      "$MODULES_DIR/nginx-http-auth-jwt-module"; \
@@ -132,7 +138,32 @@ RUN set -euo pipefail; \
     # libbrotli-dev headers instead, as the .deb pipeline does, so headers and the
     # linked library are the same version and no submodule checkout is needed.
     mkdir -p "$MODULES_DIR/ngx_brotli/deps/brotli/c/include"; \
-    ln -sfn /usr/include/brotli "$MODULES_DIR/ngx_brotli/deps/brotli/c/include/brotli"
+    ln -sfn /usr/include/brotli "$MODULES_DIR/ngx_brotli/deps/brotli/c/include/brotli"; \
+    clone https://github.com/openresty/lua-nginx-module.git        "$LUA_NGINX_MODULE_REF"   "$MODULES_DIR/lua-nginx-module"; \
+    clone https://github.com/openresty/lua-resty-core.git          "$LUA_RESTY_CORE_REF"     "$MODULES_DIR/lua-resty-core"; \
+    clone https://github.com/openresty/lua-resty-lrucache.git      "$LUA_RESTY_LRUCACHE_REF" "$MODULES_DIR/lua-resty-lrucache"; \
+    clone https://github.com/vision5/ngx_devel_kit.git             "$NDK_REF"                "$MODULES_DIR/ngx_devel_kit"; \
+    clone https://github.com/openresty/luajit2.git                 "$LUAJIT_REF"             "$MODULES_DIR/luajit2"
+
+# --- LuaJIT + Lua libraries -------------------------------------------------
+# Same as the .deb pipeline: OpenResty's LuaJIT built position-independent and
+# linked statically into ngx_http_lua_module.so; the bundled lua-resty-*
+# location compiled into the module so resty.core loads with no
+# lua_package_path; and a hard check that lua-resty-core matches the module.
+RUN set -euo pipefail; \
+    make -C "$MODULES_DIR/luajit2" -j"$(nproc)" CFLAGS=-fPIC PREFIX=/usr > /dev/null; \
+    make -C "$MODULES_DIR/luajit2" install PREFIX=/usr DESTDIR=/opt/luajit > /dev/null; \
+    rm -f /opt/luajit/usr/lib/libluajit-5.1.so*; \
+    sed -i '1i #ifndef LUA_DEFAULT_PATH\n#define LUA_DEFAULT_PATH "/usr/share/nginx-rbs/lua/?.lua;/usr/share/nginx-rbs/lua/?/init.lua"\n#endif' \
+      "$MODULES_DIR/lua-nginx-module/src/ngx_http_lua_util.c"; \
+    make -C "$MODULES_DIR/lua-resty-core" install LUA_LIB_DIR=/opt/nginx-lua > /dev/null; \
+    make -C "$MODULES_DIR/lua-resty-lrucache" install LUA_LIB_DIR=/opt/nginx-lua > /dev/null; \
+    HAVE="$(grep -oE 'ngx_http_lua_version +[0-9]+' "$MODULES_DIR/lua-nginx-module/src/api/ngx_http_lua_api.h" | awk '{print $2}')"; \
+    WANT="$(grep -oE 'ngx_lua_version ~= [0-9]+' /opt/nginx-lua/resty/core/base.lua | head -n 1 | awk '{print $3}')"; \
+    if [ -z "$HAVE" ] || [ "$HAVE" != "$WANT" ]; then \
+      echo "FATAL: lua-resty-core $LUA_RESTY_CORE_REF needs ngx_lua $WANT, lua-nginx-module $LUA_NGINX_MODULE_REF is $HAVE" >&2; exit 1; \
+    fi; \
+    echo "lua-nginx-module $LUA_NGINX_MODULE_REF ($HAVE) + lua-resty-core $LUA_RESTY_CORE_REF: matched"
 
 # Record exactly which commit of each module went in, so any image built from a
 # floating ref can still be audited after the fact.
@@ -181,6 +212,7 @@ RUN set -euo pipefail; \
     BUILD_LDFLAGS="$(dpkg-buildflags --get LDFLAGS)"; \
     echo "CFLAGS: $BUILD_CFLAGS"; \
     echo "LDFLAGS: $BUILD_LDFLAGS"; \
+    LUAJIT_LIB=/opt/luajit/usr/lib LUAJIT_INC=/opt/luajit/usr/include/luajit-2.1 \
     CFLAGS="" ./configure \
       --prefix=/etc/nginx \
       --sbin-path=/usr/sbin/nginx \
@@ -226,13 +258,14 @@ RUN set -euo pipefail; \
       --with-openssl="${MODULES_DIR}/openssl-${OPENSSL_VERSION}" \
       --with-openssl-opt='enable-ktls threads enable-zlib enable-zstd enable-brotli -fPIC' \
       --add-module="${MODULES_DIR}/nginx_headers_more_module" \
-      --add-module="${MODULES_DIR}/nginx_dav_ext_module" \
       --add-module="${MODULES_DIR}/ngx_brotli" \
       --add-dynamic-module="${MODULES_DIR}/nginx_passenger" \
       --add-dynamic-module="${MODULES_DIR}/nginx_module_vts" \
       --add-dynamic-module="${MODULES_DIR}/nginx_http_geoip2_module" \
       --add-dynamic-module="${MODULES_DIR}/nginx-http-auth-jwt-module" \
       --add-dynamic-module="${MODULES_DIR}/nginx_njs/nginx" \
+      --add-dynamic-module="${MODULES_DIR}/ngx_devel_kit" \
+      --add-dynamic-module="${MODULES_DIR}/lua-nginx-module" \
       --with-cc-opt="$BUILD_CFLAGS" \
       --with-ld-opt="$BUILD_LDFLAGS -Wl,--no-as-needed -lbrotlienc -lbrotlidec -lbrotlicommon -lzstd -Wl,--as-needed" \
  && make -j"$(nproc)" \
@@ -306,6 +339,7 @@ COPY --from=builder /usr/local/bin/passenger* /usr/local/bin/
 COPY --from=builder /opt/module-commits.txt   /usr/share/nginx-rbs/module-commits.txt
 COPY --from=builder /opt/passenger-root       /usr/share/nginx-rbs/passenger-root
 COPY --from=builder /opt/passenger-version    /usr/share/nginx-rbs/passenger-version
+COPY --from=builder /opt/nginx-lua            /usr/share/nginx-rbs/lua
 
 # Users, cache/log dirs, and the docroot. `make install` with --prefix=/etc/nginx
 # drops the stock index.html/50x.html into /etc/nginx/html; they get moved to
@@ -346,6 +380,8 @@ RUN set -euo pipefail; \
     gen 31-stream-geoip2     ngx_stream_geoip2_module.so; \
     gen 40-http-auth-jwt     ngx_http_auth_jwt_module.so; \
     gen 50-http-passenger    ngx_http_passenger_module.so; \
+    gen 60-http-ndk          ndk_http_module.so; \
+    gen 61-http-lua          ngx_http_lua_module.so; \
     for f in /etc/nginx/modules-available/*.conf; do \
       case "$f" in *passenger*) continue ;; esac; \
       ln -sf "$f" "/etc/nginx/modules-enabled/$(basename "$f")"; \
@@ -366,7 +402,7 @@ RUN set -euo pipefail; \
     nginx -t
 
 LABEL org.opencontainers.image.title="nginx-rbs" \
-      org.opencontainers.image.description="nginx mainline with in-tree OpenSSL (ktls/zlib/zstd/brotli), njs, VTS, GeoIP2, auth-JWT, headers-more, dav-ext, brotli and Passenger — matching the RBS Debian packages" \
+      org.opencontainers.image.description="nginx mainline with in-tree OpenSSL (ktls/zlib/zstd/brotli), njs, Lua, VTS, GeoIP2, auth-JWT, headers-more, brotli and Passenger — matching the RBS Debian packages" \
       org.opencontainers.image.source="https://github.com/Reborns/nginx-rbs" \
       org.opencontainers.image.version="${NGINX_VERSION}" \
       org.opencontainers.image.revision="${VCS_REF}" \

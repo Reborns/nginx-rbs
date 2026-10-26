@@ -106,7 +106,6 @@ jobs:
           wget -q -c https://github.com/openssl/openssl/releases/download/openssl-${{ steps.openssl_version.outputs.version }}/openssl-${{ steps.openssl_version.outputs.version }}.tar.gz  -O - | tar -xz -C /opt/nginx-modules/
           git clone -q --single-branch --depth 1 https://github.com/nginx/njs.git /opt/nginx-modules/nginx_njs
           git clone -q --single-branch --depth 1 https://github.com/openresty/headers-more-nginx-module.git /opt/nginx-modules/nginx_headers_more_module
-          git clone -q --single-branch --depth 1 https://github.com/arut/nginx-dav-ext-module.git /opt/nginx-modules/nginx_dav_ext_module
           git clone -q --single-branch --depth 1 https://github.com/vozlt/nginx-module-vts.git /opt/nginx-modules/nginx_module_vts
           git clone -q --single-branch --depth 1 https://github.com/leev/ngx_http_geoip2_module.git /opt/nginx-modules/nginx_http_geoip2_module
           git clone -q --single-branch --depth 1 https://github.com/TeslaGov/ngx-http-auth-jwt-module.git /opt/nginx-modules/nginx-http-auth-jwt-module
@@ -116,6 +115,46 @@ jobs:
           # are the same version and no submodule checkout is needed.
           mkdir -p /opt/nginx-modules/ngx_brotli/deps/brotli/c/include
           ln -sfn /usr/include/brotli /opt/nginx-modules/ngx_brotli/deps/brotli/c/include/brotli
+
+      - name: Build LuaJIT and Lua libraries
+        env:
+          # These five are released together and pinned together. lua-resty-core
+          # must match lua-nginx-module's version exactly or nginx refuses to
+          # start, so bump them as a set (the check at the end enforces it).
+          LUA_NGINX_MODULE_REF: v0.10.31
+          LUA_RESTY_CORE_REF: v0.1.34rc3
+          LUA_RESTY_LRUCACHE_REF: v0.15
+          NDK_REF: v0.3.4
+          LUAJIT_REF: v2.1-20260917
+        run: |
+          M=/opt/nginx-modules
+          git -c advice.detachedHead=false clone -q --depth 1 --branch "$LUA_NGINX_MODULE_REF" https://github.com/openresty/lua-nginx-module.git $M/lua-nginx-module
+          git -c advice.detachedHead=false clone -q --depth 1 --branch "$LUA_RESTY_CORE_REF" https://github.com/openresty/lua-resty-core.git $M/lua-resty-core
+          git -c advice.detachedHead=false clone -q --depth 1 --branch "$LUA_RESTY_LRUCACHE_REF" https://github.com/openresty/lua-resty-lrucache.git $M/lua-resty-lrucache
+          git -c advice.detachedHead=false clone -q --depth 1 --branch "$NDK_REF" https://github.com/vision5/ngx_devel_kit.git $M/ngx_devel_kit
+          git -c advice.detachedHead=false clone -q --depth 1 --branch "$LUAJIT_REF" https://github.com/openresty/luajit2.git $M/luajit2
+          # OpenResty's LuaJIT, built position-independent and linked statically
+          # into ngx_http_lua_module.so: the package needs no distro LuaJIT, and
+          # every distro runs the same one. PREFIX=/usr keeps LuaJIT's fallback
+          # search path on the standard /usr/share/lua/5.1.
+          make -C $M/luajit2 -j$(nproc) CFLAGS=-fPIC PREFIX=/usr > /dev/null
+          make -C $M/luajit2 install PREFIX=/usr DESTDIR=/opt/luajit > /dev/null
+          rm -f /opt/luajit/usr/lib/libluajit-5.1.so*
+          # Compile the bundled library location into the module, so resty.core
+          # loads without any lua_package_path. Done in the source because nginx's
+          # configure cannot carry a quoted string through --with-cc-opt.
+          sed -i '1i #ifndef LUA_DEFAULT_PATH\n#define LUA_DEFAULT_PATH "/usr/share/nginx-rbs/lua/?.lua;/usr/share/nginx-rbs/lua/?/init.lua"\n#endif' $M/lua-nginx-module/src/ngx_http_lua_util.c
+          # Staged here; debian/rules copies them into /usr/share/nginx-rbs/lua.
+          make -C $M/lua-resty-core install LUA_LIB_DIR=/opt/nginx-lua > /dev/null
+          make -C $M/lua-resty-lrucache install LUA_LIB_DIR=/opt/nginx-lua > /dev/null
+          # Fail the build, not nginx start-up, if the pinned pair ever drifts.
+          HAVE=$(grep -oE 'ngx_http_lua_version +[0-9]+' $M/lua-nginx-module/src/api/ngx_http_lua_api.h | awk '{print $2}')
+          WANT=$(grep -oE 'ngx_lua_version ~= [0-9]+' /opt/nginx-lua/resty/core/base.lua | head -n 1 | awk '{print $3}')
+          if [ -z "$HAVE" ] || [ "$HAVE" != "$WANT" ]; then
+            echo "::error::lua-resty-core $LUA_RESTY_CORE_REF needs ngx_lua $WANT, lua-nginx-module $LUA_NGINX_MODULE_REF is $HAVE"
+            exit 1
+          fi
+          echo "lua-nginx-module $LUA_NGINX_MODULE_REF ($HAVE) + lua-resty-core $LUA_RESTY_CORE_REF: matched"
 
       - name: Build Passenger Module
         run: |

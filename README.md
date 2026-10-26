@@ -58,6 +58,7 @@ The package replaces nginx from nginx.org and keeps the standard layout
 
 **Built-in modules**
 - [headers-more](https://github.com/openresty/headers-more-nginx-module)
+- [dav-ext](https://github.com/arut/nginx-dav-ext-module)
 - [brotli](https://github.com/google/ngx_brotli) — `brotli` (on-the-fly) and `brotli_static` (pre-compressed `.br` files)
 - All standard nginx.org modules: realip, auth_request, sub, slice, secure_link, gzip_static, mp4, stream (ssl, ssl_preread, realip), mail, and more
 

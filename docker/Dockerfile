@@ -32,6 +32,7 @@ ARG PASSENGER_VERSION=""
 # pipeline does today. Set any of these to a tag or commit SHA to pin.
 ARG NJS_REF=""
 ARG HEADERS_MORE_REF=""
+ARG DAV_EXT_REF=""
 ARG VTS_REF=""
 ARG GEOIP2_REF=""
 ARG AUTH_JWT_REF=""
@@ -63,9 +64,10 @@ RUN for v in NGINX_VERSION NGINX_SHA256 OPENSSL_VERSION OPENSSL_SHA256; do \
 # dpkg-dev which we keep in order to read dpkg-buildflags.
 #
 # libxslt1-dev is REQUIRED and is not there for --with-http_xslt_module, which
-# this build does not enable. njs's nginx `config` defaults NJS_LIBXSLT=YES for
-# its xml module, which makes nginx's configure run the libxml2/libxslt probe
-# and hard-fail when it is absent:
+# this build does not enable. nginx-dav-ext-module's own `config` script sets
+# USE_LIBXSLT=YES for its PROPFIND XML handling, and njs's `config` defaults
+# NJS_LIBXSLT=YES for its xml module. Either one makes nginx's configure run the
+# libxml2/libxslt probe and hard-fail when it is absent:
 #     ./configure: error: the HTTP XSLT module requires the libxml2/libxslt
 # That is why the .deb pipeline installs libxslt-dev despite passing no XSLT
 # flag. Do not trim it by reading the configure line alone.
@@ -130,6 +132,7 @@ RUN set -euo pipefail; \
     }; \
     clone https://github.com/nginx/njs.git                          "$NJS_REF"           "$MODULES_DIR/nginx_njs"; \
     clone https://github.com/openresty/headers-more-nginx-module.git "$HEADERS_MORE_REF" "$MODULES_DIR/nginx_headers_more_module"; \
+    clone https://github.com/arut/nginx-dav-ext-module.git          "$DAV_EXT_REF"       "$MODULES_DIR/nginx_dav_ext_module"; \
     clone https://github.com/vozlt/nginx-module-vts.git             "$VTS_REF"           "$MODULES_DIR/nginx_module_vts"; \
     clone https://github.com/leev/ngx_http_geoip2_module.git        "$GEOIP2_REF"        "$MODULES_DIR/nginx_http_geoip2_module"; \
     clone https://github.com/TeslaGov/ngx-http-auth-jwt-module.git  "$AUTH_JWT_REF"      "$MODULES_DIR/nginx-http-auth-jwt-module"; \
@@ -258,6 +261,7 @@ RUN set -euo pipefail; \
       --with-openssl="${MODULES_DIR}/openssl-${OPENSSL_VERSION}" \
       --with-openssl-opt='enable-ktls threads enable-zlib enable-zstd enable-brotli -fPIC' \
       --add-module="${MODULES_DIR}/nginx_headers_more_module" \
+      --add-module="${MODULES_DIR}/nginx_dav_ext_module" \
       --add-module="${MODULES_DIR}/ngx_brotli" \
       --add-dynamic-module="${MODULES_DIR}/nginx_passenger" \
       --add-dynamic-module="${MODULES_DIR}/nginx_module_vts" \
@@ -402,7 +406,7 @@ RUN set -euo pipefail; \
     nginx -t
 
 LABEL org.opencontainers.image.title="nginx-rbs" \
-      org.opencontainers.image.description="nginx mainline with in-tree OpenSSL (ktls/zlib/zstd/brotli), njs, Lua, VTS, GeoIP2, auth-JWT, headers-more, brotli and Passenger — matching the RBS Debian packages" \
+      org.opencontainers.image.description="nginx mainline with in-tree OpenSSL (ktls/zlib/zstd/brotli), njs, Lua, VTS, GeoIP2, auth-JWT, headers-more, dav-ext, brotli and Passenger — matching the RBS Debian packages" \
       org.opencontainers.image.source="https://github.com/Reborns/nginx-rbs" \
       org.opencontainers.image.version="${NGINX_VERSION}" \
       org.opencontainers.image.revision="${VCS_REF}" \

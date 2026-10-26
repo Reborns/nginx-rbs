@@ -55,6 +55,7 @@ for flag in \
   "enable-zstd" \
   "enable-brotli" \
   nginx_headers_more_module \
+  nginx_dav_ext_module \
   ngx_brotli \
   nginx_passenger \
   nginx_module_vts \

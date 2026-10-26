@@ -23,6 +23,11 @@ BUILDDIR_nginx = $(CURDIR)/debian/build-nginx
 INSTALLDIR = $(CURDIR)/debian/nginx
 BASEDIR = $(CURDIR)
 MODULESDIR = /opt/nginx-modules
+# OpenResty LuaJIT, staged by the workflow; linked statically into the lua module
+LUAJIT_LIB = /opt/luajit/usr/lib
+LUAJIT_INC = /opt/luajit/usr/include/luajit-2.1
+# lua-resty-core + lua-resty-lrucache, staged by the workflow
+LUA_STAGE = /opt/nginx-lua
 
 ifneq (,$(filter parallel=%,$(DEB_BUILD_OPTIONS)))
         NUMJOBS = $(patsubst parallel=%,%,$(filter parallel=%,$(DEB_BUILD_OPTIONS)))
@@ -48,7 +53,7 @@ config.env.%:
 
 config.status.nginx: config.env.nginx
         cd $(BUILDDIR_nginx) && \
-        CFLAGS="" ./configure --prefix=/etc/nginx --sbin-path=/usr/sbin/nginx \
+        LUAJIT_LIB=$(LUAJIT_LIB) LUAJIT_INC=$(LUAJIT_INC) CFLAGS="" ./configure --prefix=/etc/nginx --sbin-path=/usr/sbin/nginx \
         --modules-path=/usr/lib/nginx/modules --conf-path=/etc/nginx/nginx.conf \
         --error-log-path=/var/log/nginx/error.log --http-log-path=/var/log/nginx/access.log \
         --pid-path=/var/run/nginx.pid --lock-path=/var/run/nginx.lock \
@@ -68,13 +73,14 @@ config.status.nginx: config.env.nginx
         --with-openssl=$(MODULESDIR)/openssl-3.6.1 \
         --with-openssl-opt="enable-ktls threads enable-zlib enable-zstd enable-brotli -fPIC" \
         --add-module=$(MODULESDIR)/nginx_headers_more_module \
-        --add-module=$(MODULESDIR)/nginx_dav_ext_module \
         --add-module=$(MODULESDIR)/ngx_brotli \
         --add-dynamic-module=$(MODULESDIR)/nginx_passenger \
         --add-dynamic-module=$(MODULESDIR)/nginx_module_vts \
         --add-dynamic-module=$(MODULESDIR)/nginx_http_geoip2_module \
         --add-dynamic-module=$(MODULESDIR)/nginx-http-auth-jwt-module \
         --add-dynamic-module=$(MODULESDIR)/nginx_njs/nginx \
+        --add-dynamic-module=$(MODULESDIR)/ngx_devel_kit \
+        --add-dynamic-module=$(MODULESDIR)/lua-nginx-module \
         --with-cc-opt="$(CFLAGS)" \
         --with-ld-opt="$(LDFLAGS) -Wl,--no-as-needed -lbrotlienc -lbrotlidec -lbrotlicommon -lzstd -Wl,--as-needed"
         touch $@
@@ -132,6 +138,10 @@ install:
         install -m 644 $(CURDIR)/objs/ngx_http_js_module.so $(INSTALLDIR)/usr/lib/nginx/modules/ngx_http_js_module.so
         install -m 644 $(CURDIR)/objs/ngx_stream_js_module.so $(INSTALLDIR)/usr/lib/nginx/modules/ngx_stream_js_module.so
         install -m 644 $(CURDIR)/objs/ngx_http_auth_jwt_module.so $(INSTALLDIR)/usr/lib/nginx/modules/ngx_http_auth_jwt_module.so
+        install -m 644 $(CURDIR)/objs/ndk_http_module.so $(INSTALLDIR)/usr/lib/nginx/modules/ndk_http_module.so
+        install -m 644 $(CURDIR)/objs/ngx_http_lua_module.so $(INSTALLDIR)/usr/lib/nginx/modules/ngx_http_lua_module.so
+        mkdir -p $(INSTALLDIR)/usr/share/nginx-rbs/lua
+        cp -r $(LUA_STAGE)/. $(INSTALLDIR)/usr/share/nginx-rbs/lua/
         ln -s /usr/lib/nginx/modules $(INSTALLDIR)/etc/nginx/modules
 
 binary-indep: build post-build install

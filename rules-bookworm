@@ -73,6 +73,7 @@ config.status.nginx: config.env.nginx
         --with-openssl=$(MODULESDIR)/openssl-3.6.1 \
         --with-openssl-opt="enable-ktls threads enable-zlib enable-zstd enable-brotli -fPIC" \
         --add-module=$(MODULESDIR)/nginx_headers_more_module \
+        --add-module=$(MODULESDIR)/nginx_dav_ext_module \
         --add-module=$(MODULESDIR)/ngx_brotli \
         --add-dynamic-module=$(MODULESDIR)/nginx_passenger \
         --add-dynamic-module=$(MODULESDIR)/nginx_module_vts \

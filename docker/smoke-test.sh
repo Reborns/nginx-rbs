@@ -170,6 +170,7 @@ LUA_OUT="$(docker run --rm --user root --entrypoint sh "$IMAGE" -c '
 lua_shared_dict rbs_test 1m;
 server {
   listen 8099;
+  access_log off;
   location = /lua {
     set_by_lua_block \$answer { return tostring(6 * 7) }
     content_by_lua_block {
@@ -183,7 +184,10 @@ server {
   }
 }
 EOF
-  nginx 2>/tmp/nginx.err || { cat /tmp/nginx.err; exit 1; }
+  # The image logs to /dev/stdout and /dev/stderr, i.e. into the output this
+  # test compares. Point the daemon there at a file so only the curl body is
+  # compared; on a start-up failure that file is the error message.
+  nginx >/tmp/nginx.out 2>&1 || { cat /tmp/nginx.out; exit 1; }
   sleep 1
   curl -fsS http://127.0.0.1:8099/lua
 ' 2>&1)" || fail "Lua test request failed: ${LUA_OUT}"

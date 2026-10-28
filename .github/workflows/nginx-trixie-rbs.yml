@@ -1,8 +1,7 @@
 name: Build Nginx Trixie
 on:
   schedule:
-    # 03:23 UTC daily. Off the full hour on purpose: GitHub delays scheduled runs
-    # most at :00 (these ran ~5h late at 04:00) and may drop them under load.
+    # 03:23 UTC daily; off the full hour, where GitHub delays schedules most.
     - cron: '23 3 * * *'
   workflow_dispatch:
     inputs:
@@ -21,7 +20,7 @@ jobs:
       - name: Get Latest Nginx Mainline Version
         id: get_latest
         run: |
-          # Your working query
+          # Latest mainline version from nginx.org
           VER=$(curl -s https://nginx.org/en/CHANGES | head -n 2 | grep -oP 'nginx \K[0-9.]+')
           echo "ver=$VER" >> $GITHUB_OUTPUT
           cat $GITHUB_OUTPUT
@@ -49,8 +48,7 @@ jobs:
           LAST: ${{ steps.get_last.outputs.last }}
           FORCE: ${{ github.event.inputs.force_build }}
         run: |
-          # An empty version means the nginx.org lookup failed. Without this check it
-          # would differ from the last tag and start a build tagged "-trixie".
+          # Empty version = nginx.org lookup failed.
           if [ -z "$LATEST" ]; then
             echo "::error::could not read the nginx mainline version from nginx.org/en/CHANGES"
             exit 1
@@ -111,17 +109,13 @@ jobs:
           git clone -q --single-branch --depth 1 https://github.com/leev/ngx_http_geoip2_module.git /opt/nginx-modules/nginx_http_geoip2_module
           git clone -q --single-branch --depth 1 https://github.com/TeslaGov/ngx-http-auth-jwt-module.git /opt/nginx-modules/nginx-http-auth-jwt-module
           git clone -q --single-branch --depth 1 https://github.com/google/ngx_brotli.git /opt/nginx-modules/ngx_brotli
-          # ngx_brotli looks for headers in its deps/brotli submodule. Point that at the
-          # distro's libbrotli-dev headers instead, so headers and the linked library
-          # are the same version and no submodule checkout is needed.
+          # ngx_brotli: use libbrotli-dev headers instead of its git submodule.
           mkdir -p /opt/nginx-modules/ngx_brotli/deps/brotli/c/include
           ln -sfn /usr/include/brotli /opt/nginx-modules/ngx_brotli/deps/brotli/c/include/brotli
 
       - name: Build LuaJIT and Lua libraries
         env:
-          # These five are released together and pinned together. lua-resty-core
-          # must match lua-nginx-module's version exactly or nginx refuses to
-          # start, so bump them as a set (the check at the end enforces it).
+          # Pinned set: lua-resty-core must match lua-nginx-module (checked below).
           LUA_NGINX_MODULE_REF: v0.10.31
           LUA_RESTY_CORE_REF: v0.1.34rc3
           LUA_RESTY_LRUCACHE_REF: v0.15
@@ -134,21 +128,16 @@ jobs:
           git -c advice.detachedHead=false clone -q --depth 1 --branch "$LUA_RESTY_LRUCACHE_REF" https://github.com/openresty/lua-resty-lrucache.git $M/lua-resty-lrucache
           git -c advice.detachedHead=false clone -q --depth 1 --branch "$NDK_REF" https://github.com/vision5/ngx_devel_kit.git $M/ngx_devel_kit
           git -c advice.detachedHead=false clone -q --depth 1 --branch "$LUAJIT_REF" https://github.com/openresty/luajit2.git $M/luajit2
-          # OpenResty's LuaJIT, built position-independent and linked statically
-          # into ngx_http_lua_module.so: the package needs no distro LuaJIT, and
-          # every distro runs the same one. PREFIX=/usr keeps LuaJIT's fallback
-          # search path on the standard /usr/share/lua/5.1.
+          # Static OpenResty LuaJIT, linked into the lua module.
           make -C $M/luajit2 -j$(nproc) CFLAGS=-fPIC PREFIX=/usr > /dev/null
           make -C $M/luajit2 install PREFIX=/usr DESTDIR=/opt/luajit > /dev/null
           rm -f /opt/luajit/usr/lib/libluajit-5.1.so*
-          # Compile the bundled library location into the module, so resty.core
-          # loads without any lua_package_path. Done in the source because nginx's
-          # configure cannot carry a quoted string through --with-cc-opt.
+          # Default Lua path for the bundled libraries.
           sed -i '1i #ifndef LUA_DEFAULT_PATH\n#define LUA_DEFAULT_PATH "/usr/share/nginx-rbs/lua/?.lua;/usr/share/nginx-rbs/lua/?/init.lua"\n#endif' $M/lua-nginx-module/src/ngx_http_lua_util.c
-          # Staged here; debian/rules copies them into /usr/share/nginx-rbs/lua.
+          # Staged for debian/rules.
           make -C $M/lua-resty-core install LUA_LIB_DIR=/opt/nginx-lua > /dev/null
           make -C $M/lua-resty-lrucache install LUA_LIB_DIR=/opt/nginx-lua > /dev/null
-          # Fail the build, not nginx start-up, if the pinned pair ever drifts.
+          # Check the version pair.
           HAVE=$(grep -oE 'ngx_http_lua_version +[0-9]+' $M/lua-nginx-module/src/api/ngx_http_lua_api.h | awk '{print $2}')
           WANT=$(grep -oE 'ngx_lua_version ~= [0-9]+' /opt/nginx-lua/resty/core/base.lua | head -n 1 | awk '{print $3}')
           if [ -z "$HAVE" ] || [ "$HAVE" != "$WANT" ]; then
@@ -178,6 +167,7 @@ jobs:
           sed -i 's|/openssl-[0-9.]*|/openssl-${{ steps.openssl_version.outputs.version }}|g' debian/rules
           rm -rf debian/files
           cp ../passenger.conf.example debian/passenger.conf.example
+          sed -i "s|@PASSENGER_ROOT@|$(passenger-config --root)|g; s|@PASSENGER_RUBY@|$(command -v ruby)|g" debian/passenger.conf.example
           sed -i '/Package: nginx-dbg/,/^$/d' debian/control
           sed -i '/build-nginx-debug/,/^$/d' debian/nginx.install
           sed -i 's/^[ ]\+/\t/g' debian/rules
@@ -222,8 +212,7 @@ jobs:
           script: |
             DL_DIR="${{ secrets.DOWNLOAD_DIR }}"
             DL_OWNER="${{ secrets.DOWNLOAD_OWNER }}"
-            # Refuse to run with an empty or relative path: the find -delete below
-            # would otherwise run against / or the login directory.
+            # Refuse an empty or relative path (find -delete below).
             case "$DL_DIR" in
               /?*) ;;
               *) echo "Error: DOWNLOAD_DIR secret is empty or not an absolute path."; exit 1 ;;

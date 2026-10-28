@@ -1,12 +1,6 @@
 #!/usr/bin/env bash
 #
-# Gate between "image built" and "image pushed".
-#
-# The .deb pipeline publishes whatever dpkg-buildpackage produced without ever
-# starting it. This checks the things that actually go wrong in a from-source
-# build: a module that compiled but cannot load because its runtime library is
-# missing from the slim image, an OpenSSL that silently fell back to the system
-# one, or a version mismatch between what we tagged and what we built.
+# Checks the image before it is pushed.
 #
 # Usage: smoke-test.sh <image> <expected-nginx-version> <expected-openssl-version>
 
@@ -34,7 +28,7 @@ grep -q "nginx/${WANT_NGINX}\b" <<<"$VOUT" \
   || fail "binary reports a different nginx version than the tag claims (wanted ${WANT_NGINX})"
 pass "nginx version is ${WANT_NGINX}"
 
-# This is the check that catches an in-tree OpenSSL build silently not happening.
+# Fails if the in-tree OpenSSL was not used.
 grep -q "built with OpenSSL ${WANT_OPENSSL}" <<<"$VOUT" \
   || fail "not built against OpenSSL ${WANT_OPENSSL} — check --with-openssl path"
 pass "built with OpenSSL ${WANT_OPENSSL}"
@@ -69,7 +63,7 @@ do
   pass "$flag"
 done
 
-# brotli and zstd are linked via --with-ld-opt, so verify the linkage landed too.
+# brotli and zstd come from --with-ld-opt.
 LDD="$(docker run --rm --entrypoint ldd "$IMAGE" /usr/sbin/nginx)"
 for lib in libbrotlienc libbrotlidec libzstd; do
   grep -q "$lib" <<<"$LDD" || fail "nginx is not linked against $lib"
@@ -79,16 +73,12 @@ done
 # ---------------------------------------------------------------------------
 info "every module loads (including Passenger)"
 # ---------------------------------------------------------------------------
-# The real risk in a slim runtime image is a module whose shared library did not
-# make it in. Loading all of them at once and running nginx -t proves otherwise.
-# Passenger is not enabled by default, so this is where it gets exercised.
+# Load every module, Passenger included, and run nginx -t.
 ALL_MODULES="$(docker run --rm --entrypoint sh "$IMAGE" -c \
   'ls /etc/nginx/modules-available/*.conf | xargs -n1 basename')"
 echo "modules-available: $(tr '\n' ' ' <<<"$ALL_MODULES")"
 
-# --user root here on purpose: /etc/nginx is deliberately NOT writable by the
-# nginx user, and this step rewrites config to force-load every module. It is
-# testing that the modules link, not that the runtime user can edit config.
+# root: /etc/nginx is read-only for the nginx user.
 docker run --rm --user root --entrypoint sh "$IMAGE" -c '
   set -eu
   for f in /etc/nginx/modules-available/*.conf; do
@@ -104,8 +94,7 @@ pass "all modules load and nginx -t passes"
 # ---------------------------------------------------------------------------
 info "Passenger runtime is usable"
 # ---------------------------------------------------------------------------
-# Also --user root: validate-install may compile native support into the gem
-# dir, which the nginx user cannot write. This validates the install itself.
+# root: validate-install may write into the gem dir.
 docker run --rm --user root --entrypoint sh "$IMAGE" -c 'passenger-config validate-install --auto' \
   || fail "passenger-config validate-install failed — Ruby or the compiled agent is incomplete"
 pass "passenger-config validate-install"
@@ -122,8 +111,7 @@ UID_OUT="$(docker run --rm --entrypoint id "$IMAGE" -u)"
 [ "$UID_OUT" != "0" ] || fail "image runs as root; USER nginx is not in effect"
 pass "default user is uid ${UID_OUT} (non-root)"
 
-# A config the runtime user can rewrite is a config a compromised worker can
-# rewrite. Assert it stays read-only to that user.
+# /etc/nginx must stay read-only for the nginx user.
 docker run --rm --entrypoint sh "$IMAGE" -c 'touch /etc/nginx/_writetest 2>/dev/null' \
   && fail "/etc/nginx is writable by the runtime user; it should be root-owned and read-only" \
   || pass "/etc/nginx is not writable by the runtime user"
@@ -153,18 +141,12 @@ pass "/healthz responded"
 curl -fsS "http://127.0.0.1:${PORT}/" >/dev/null || fail "default server did not serve /"
 pass "/ served"
 
-# ngx_brotli is compiled in but off unless configured; nginx -t proves the
-# directives are known to the binary.
-docker run --rm --user root --entrypoint sh "$IMAGE" -c '
-  printf "brotli on;\nbrotli_static on;\nbrotli_types text/plain;\n" > /etc/nginx/conf.d/zz-brotli-test.conf
-  nginx -t
-' || fail "brotli directives rejected — ngx_brotli is not compiled in"
-pass "brotli / brotli_static directives accepted"
+# brotli is enabled in nginx.conf.
+HDRS="$(curl -fsS -o /dev/null -D - -H "Accept-Encoding: br" "http://127.0.0.1:${PORT}/")"
+grep -qi '^content-encoding: br' <<<"$HDRS" || fail "/ was not served brotli-compressed"
+pass "brotli compression"
 
-# Lua is checked by serving a request, not by nginx -t: with the bundled
-# lua-resty-core missing or mismatched, nginx -t still passes but nginx itself
-# refuses to start. ngx.re and ngx.shared exercise resty.core; set_by_lua
-# exercises ngx_devel_kit; lrucache exercises the second bundled library.
+# A real request: nginx -t passes even when resty.core is missing.
 LUA_OUT="$(docker run --rm --user root --entrypoint sh "$IMAGE" -c '
   cat > /etc/nginx/conf.d/zz-lua-test.conf <<EOF
 lua_shared_dict rbs_test 1m;
@@ -184,9 +166,7 @@ server {
   }
 }
 EOF
-  # The image logs to /dev/stdout and /dev/stderr, i.e. into the output this
-  # test compares. Point the daemon there at a file so only the curl body is
-  # compared; on a start-up failure that file is the error message.
+  # nginx logs to stdout/stderr; keep that out of the compared output.
   nginx >/tmp/nginx.out 2>&1 || { cat /tmp/nginx.out; exit 1; }
   sleep 1
   curl -fsS http://127.0.0.1:8099/lua
@@ -194,15 +174,7 @@ EOF
 [ "$LUA_OUT" = "core 2 42 shm lru" ] || fail "unexpected Lua output: '${LUA_OUT}'"
 pass "lua: resty.core, ngx.re, shared dict, lrucache and set_by_lua (NDK) all work"
 
-# Logs must reach stdout/stderr or nothing is observable in Kubernetes.
-#
-# Assert on `GET /`, NOT on `/healthz`: default.conf deliberately sets
-# `access_log off` for the health endpoint so probes do not flood the log, so a
-# /healthz request is never written anywhere and can never be matched here.
-#
-# Check the symlinks separately from the log content, so a failure says which
-# half broke, and dump what the container actually emitted rather than
-# swallowing it in `grep -q`.
+# Logs must reach stdout/stderr. /healthz has access_log off, so check GET /.
 for pair in "access.log:/dev/stdout" "error.log:/dev/stderr"; do
   logfile="${pair%%:*}"; want="${pair##*:}"
   got="$(docker run --rm --entrypoint readlink "$IMAGE" "/var/log/nginx/${logfile}" 2>/dev/null || true)"

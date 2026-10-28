@@ -1,17 +1,7 @@
 # syntax=docker/dockerfile:1.9
 #
-# nginx-rbs — container build of nginx mainline with the same OpenSSL treatment,
-# hardening flags and module set as the RBS Debian packages.
-#
-# This build is deliberately INDEPENDENT of the .deb pipeline: it compiles nginx
-# from the upstream nginx.org source tarball. Parity with rules-trixie is kept by
-# reusing the same configure flags and by deriving CFLAGS/LDFLAGS from
-# dpkg-buildflags with the identical DEB_*_MAINT_APPEND values, so the compiler
-# and linker hardening match the .deb bit for bit.
-#
-# No network trust decisions are made in here. The workflow resolves versions,
-# verifies provenance, and passes down already-known SHA256 digests which this
-# file merely enforces. A missing or wrong digest fails the build.
+# nginx mainline from source, with the same configure flags, hardening and
+# modules as rules-trixie. Versions and SHA256 digests come from the workflow.
 
 ARG DEBIAN_SUITE=trixie
 
@@ -24,12 +14,10 @@ ARG NGINX_VERSION
 ARG NGINX_SHA256
 ARG OPENSSL_VERSION
 ARG OPENSSL_SHA256
-# Empty PASSENGER_VERSION installs the latest gem, matching the .deb pipeline's
-# bare `gem install passenger`. Pin it here for reproducibility.
+# Empty = latest Passenger gem.
 ARG PASSENGER_VERSION=""
 
-# Module refs. Empty = clone the default branch at HEAD, which is what the .deb
-# pipeline does today. Set any of these to a tag or commit SHA to pin.
+# Module refs: empty = default branch HEAD, or a tag/commit SHA.
 ARG NJS_REF=""
 ARG HEADERS_MORE_REF=""
 ARG DAV_EXT_REF=""
@@ -37,9 +25,8 @@ ARG VTS_REF=""
 ARG GEOIP2_REF=""
 ARG AUTH_JWT_REF=""
 ARG BROTLI_REF=""
-# The Lua stack is pinned, not floating: lua-resty-core must match
-# lua-nginx-module's version exactly or nginx refuses to start. Bump as a set,
-# together with the .deb workflows; the build checks the pair.
+# Lua stack is pinned: lua-resty-core must match lua-nginx-module.
+# Keep in sync with the .deb workflows.
 ARG LUA_NGINX_MODULE_REF="v0.10.31"
 ARG LUA_RESTY_CORE_REF="v0.1.34rc3"
 ARG LUA_RESTY_LRUCACHE_REF="v0.15"
@@ -51,30 +38,15 @@ ENV MODULES_DIR=/opt/nginx-modules \
 
 SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
 
-# Fail immediately on missing inputs rather than producing a subtly wrong image.
-# (The .deb pipeline's equivalent sed would happily write a broken /openssl- path
-# if version detection returned empty.)
+# Fail early on missing build args.
 RUN for v in NGINX_VERSION NGINX_SHA256 OPENSSL_VERSION OPENSSL_SHA256; do \
       if [ -z "${!v:-}" ]; then echo "FATAL: build-arg $v is required and empty" >&2; exit 1; fi; \
     done; \
     echo "Building nginx ${NGINX_VERSION} against OpenSSL ${OPENSSL_VERSION}"
 
 # --- build dependencies -----------------------------------------------------
-# Mirrors the .deb pipeline's list, minus the deb-packaging-only tooling, plus
-# dpkg-dev which we keep in order to read dpkg-buildflags.
-#
-# libxslt1-dev is REQUIRED and is not there for --with-http_xslt_module, which
-# this build does not enable. nginx-dav-ext-module's own `config` script sets
-# USE_LIBXSLT=YES for its PROPFIND XML handling, and njs's `config` defaults
-# NJS_LIBXSLT=YES for its xml module. Either one makes nginx's configure run the
-# libxml2/libxslt probe and hard-fail when it is absent:
-#     ./configure: error: the HTTP XSLT module requires the libxml2/libxslt
-# That is why the .deb pipeline installs libxslt-dev despite passing no XSLT
-# flag. Do not trim it by reading the configure line alone.
-#
-# `file` is used by Passenger's vendored libev/libuv configure scripts. Without
-# it they log "/usr/bin/file: No such file or directory" and fall back to weaker
-# library detection; the .deb pipeline got it transitively via devscripts.
+# libxslt1-dev: required by dav-ext and njs, even without the XSLT module.
+# file: used by Passenger's libev/libuv configure scripts.
 RUN apt-get -qq update \
  && apt-get -qq install -y --no-install-recommends \
       build-essential \
@@ -100,7 +72,7 @@ RUN apt-get -qq update \
       zlib1g-dev \
  && rm -rf /var/lib/apt/lists/*
 
-# --- nginx + OpenSSL sources, digest-enforced -------------------------------
+# --- nginx + OpenSSL sources, checked against the digests ------------------
 RUN mkdir -p "$MODULES_DIR" /usr/src \
  && curl -fSL --retry 3 --retry-delay 2 \
       "https://nginx.org/download/nginx-${NGINX_VERSION}.tar.gz" \
@@ -116,9 +88,7 @@ RUN mkdir -p "$MODULES_DIR" /usr/src \
  && rm -f /usr/src/nginx.tar.gz /usr/src/openssl.tar.gz
 
 # --- third-party modules ----------------------------------------------------
-# `clone <url> <ref> <dest>`: shallow-clones the default branch when ref is
-# empty, a tag/branch when given one, and falls back to a full clone + checkout
-# so that a raw commit SHA also works.
+# clone <url> <ref> <dest>: ref = empty, tag/branch, or commit SHA.
 RUN set -euo pipefail; \
     clone() { \
       local url="$1" ref="$2" dest="$3"; \
@@ -137,9 +107,7 @@ RUN set -euo pipefail; \
     clone https://github.com/leev/ngx_http_geoip2_module.git        "$GEOIP2_REF"        "$MODULES_DIR/nginx_http_geoip2_module"; \
     clone https://github.com/TeslaGov/ngx-http-auth-jwt-module.git  "$AUTH_JWT_REF"      "$MODULES_DIR/nginx-http-auth-jwt-module"; \
     clone https://github.com/google/ngx_brotli.git                  "$BROTLI_REF"        "$MODULES_DIR/ngx_brotli"; \
-    # ngx_brotli expects headers from its deps/brotli submodule. Point that at the
-    # libbrotli-dev headers instead, as the .deb pipeline does, so headers and the
-    # linked library are the same version and no submodule checkout is needed.
+    # ngx_brotli: use libbrotli-dev headers instead of its git submodule.
     mkdir -p "$MODULES_DIR/ngx_brotli/deps/brotli/c/include"; \
     ln -sfn /usr/include/brotli "$MODULES_DIR/ngx_brotli/deps/brotli/c/include/brotli"; \
     clone https://github.com/openresty/lua-nginx-module.git        "$LUA_NGINX_MODULE_REF"   "$MODULES_DIR/lua-nginx-module"; \
@@ -149,10 +117,8 @@ RUN set -euo pipefail; \
     clone https://github.com/openresty/luajit2.git                 "$LUAJIT_REF"             "$MODULES_DIR/luajit2"
 
 # --- LuaJIT + Lua libraries -------------------------------------------------
-# Same as the .deb pipeline: OpenResty's LuaJIT built position-independent and
-# linked statically into ngx_http_lua_module.so; the bundled lua-resty-*
-# location compiled into the module so resty.core loads with no
-# lua_package_path; and a hard check that lua-resty-core matches the module.
+# Static OpenResty LuaJIT (-fPIC), bundled lua-resty-* path compiled into the
+# module, and a check that lua-resty-core matches lua-nginx-module.
 RUN set -euo pipefail; \
     make -C "$MODULES_DIR/luajit2" -j"$(nproc)" CFLAGS=-fPIC PREFIX=/usr > /dev/null; \
     make -C "$MODULES_DIR/luajit2" install PREFIX=/usr DESTDIR=/opt/luajit > /dev/null; \
@@ -168,8 +134,7 @@ RUN set -euo pipefail; \
     fi; \
     echo "lua-nginx-module $LUA_NGINX_MODULE_REF ($HAVE) + lua-resty-core $LUA_RESTY_CORE_REF: matched"
 
-# Record exactly which commit of each module went in, so any image built from a
-# floating ref can still be audited after the fact.
+# Record the commit of each module.
 RUN set -euo pipefail; \
     : > /opt/module-commits.txt; \
     for d in "$MODULES_DIR"/*/; do \
@@ -181,8 +146,7 @@ RUN set -euo pipefail; \
     cat /opt/module-commits.txt
 
 # --- Passenger dynamic module ----------------------------------------------
-# Same approach as the .deb pipeline: build Passenger's nginx addon as a dynamic
-# module, then point --add-dynamic-module at the addon dir.
+# Passenger addon, built as a dynamic module.
 RUN set -euo pipefail; \
     if [ -n "$PASSENGER_VERSION" ]; then \
       gem install passenger -v "$PASSENGER_VERSION" --no-document; \
@@ -196,16 +160,12 @@ RUN set -euo pipefail; \
     ln -sfn "$ADDON_DIR" "$MODULES_DIR/nginx_passenger"; \
     echo "passenger=$(cat /opt/passenger-version)" >> /opt/module-commits.txt
 
-# Compile the Passenger agent here, in the builder, so the runtime image does not
-# need a compiler. See docker/README.md — this is the step most likely to need a
-# tweak across Passenger releases; smoke-test.sh gates on it.
+# Compile the Passenger agent here; the runtime image has no compiler.
 RUN passenger-config compile-agent --auto --optimize
 
 # --- configure + build ------------------------------------------------------
-# Hardening comes from dpkg-buildflags with the same DEB_*_MAINT_APPEND values
-# rules-trixie sets, which is what makes the compiler flags match the .deb.
-# The configure list is rules-trixie's, with its three duplicate flags
-# (--with-compat, --with-file-aio, --with-threads) collapsed to one each.
+# dpkg-buildflags with rules-trixie's DEB_*_MAINT_APPEND values; configure
+# flags as in rules-trixie, without its duplicates.
 RUN set -euo pipefail; \
     cd "/usr/src/nginx-${NGINX_VERSION}"; \
     export DEB_BUILD_MAINT_OPTIONS=hardening=+all; \
@@ -275,15 +235,12 @@ RUN set -euo pipefail; \
  && make -j"$(nproc)" \
  && make install
 
-# Strip the binary and modules, as dh_strip does for the .deb.
+# Strip, as dh_strip does.
 RUN strip /usr/sbin/nginx \
  && find /usr/lib/nginx/modules -name '*.so' -exec strip {} +
 
 # --- resolve runtime library packages --------------------------------------
-# Rather than hand-maintaining a runtime dependency list (which is how you end
-# up guessing whether trixie ships libjwt0 or libjwt2), walk the actual linkage
-# of the binary and every module and map it back to packages. This is the same
-# job dh_shlibdeps does for the .deb.
+# Packages providing the libraries nginx and its modules link against.
 RUN set -euo pipefail; \
     { ldd /usr/sbin/nginx; for m in /usr/lib/nginx/modules/*.so; do ldd "$m"; done; } \
       | awk '/=> \//{print $3}' | sort -u \
@@ -313,13 +270,7 @@ SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
 
 COPY --from=builder /opt/runtime-deps.txt /tmp/runtime-deps.txt
 
-# Ruby is here because Passenger's module needs a Ruby at runtime; everything
-# after runtime-deps.txt comes from the linkage analysis in the builder stage.
-#
-# curl/wget/dig/host/netstat are in-container troubleshooting tools. Debian
-# equivalents of Alpine's bind-tools are bind9-dnsutils (dig, nslookup) and
-# bind9-host (host); the `dnsutils` metapackage is transitional and gets dropped
-# between releases, so the concrete names are used deliberately.
+# ruby: needed by Passenger. curl, wget, dig, host, netstat: debugging tools.
 RUN apt-get -qq update \
  && apt-get -qq install -y --no-install-recommends \
       bind9-dnsutils \
@@ -345,9 +296,7 @@ COPY --from=builder /opt/passenger-root       /usr/share/nginx-rbs/passenger-roo
 COPY --from=builder /opt/passenger-version    /usr/share/nginx-rbs/passenger-version
 COPY --from=builder /opt/nginx-lua            /usr/share/nginx-rbs/lua
 
-# Users, cache/log dirs, and the docroot. `make install` with --prefix=/etc/nginx
-# drops the stock index.html/50x.html into /etc/nginx/html; they get moved to
-# /usr/share/nginx/html so configs stay portable between image and .deb.
+# nginx user, cache/log dirs, docroot moved to /usr/share/nginx/html.
 RUN set -euo pipefail; \
     groupadd --system --gid 101 nginx; \
     useradd --system --gid nginx --no-create-home --home /nonexistent \
@@ -373,8 +322,7 @@ RUN set -euo pipefail; \
     ln -sfn /usr/share/nginx/html /etc/nginx/html; \
     test -f /usr/share/nginx/html/index.html
 
-# One load_module snippet per dynamic module, in modules-available. Everything
-# except Passenger is enabled by symlink; see docker/README.md for why.
+# One load_module snippet per module; all enabled except Passenger.
 RUN set -euo pipefail; \
     gen() { printf 'load_module modules/%s;\n' "$2" > "/etc/nginx/modules-available/$1.conf"; }; \
     gen 10-http-js           ngx_http_js_module.so; \
@@ -396,8 +344,7 @@ COPY nginx.conf     /etc/nginx/nginx.conf
 COPY default.conf   /etc/nginx/conf.d/default.conf
 COPY passenger.conf /etc/nginx/conf.d/passenger.conf.example
 
-# Substitute the real passenger_root/ruby paths into the example config so it is
-# copy-paste correct rather than aspirational.
+# Fill in the real Passenger paths.
 RUN set -euo pipefail; \
     PR="$(cat /usr/share/nginx-rbs/passenger-root)"; \
     RUBY="$(command -v ruby)"; \
@@ -417,17 +364,8 @@ LABEL org.opencontainers.image.title="nginx-rbs" \
       io.rbs.debian.suite="${DEBIAN_SUITE}"
 
 # --- drop privileges -------------------------------------------------------
-# nginx runs as the unprivileged nginx user, master included. Binding :80 as a
-# non-root user works because container runtimes set
-# net.ipv4.ip_unprivileged_port_start=0, so no setcap and no port change is
-# needed. (Exception: OpenShift and any runtime that pins that sysctl to 1024
-# will refuse — there, either set the sysctl or listen on 8080/8443.)
-#
-# Only the paths nginx actually writes are handed over. /etc/nginx stays
-# root-owned and merely world-readable: nginx only ever READS its config, and a
-# config writable by the account nginx runs as is one a compromised worker can
-# rewrite and reload. Change the chown below to include /etc/nginx only if you
-# add startup-time config templating.
+# Runs as nginx; only cache, logs and the pid file are writable.
+# /etc/nginx stays root-owned and read-only.
 RUN set -euo pipefail; \
     touch /var/run/nginx.pid; \
     chown nginx:nginx /var/run/nginx.pid; \
@@ -436,8 +374,7 @@ RUN set -euo pipefail; \
     chmod -R a+rX /etc/nginx; \
     chmod 755 /usr/share/nginx/html
 
-# 443/udp is here because this build has --with-http_v3_module; QUIC will not
-# reach the container without it.
+# 443/udp for HTTP/3.
 EXPOSE 80 443 443/udp
 
 STOPSIGNAL SIGQUIT

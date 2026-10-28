@@ -35,13 +35,7 @@ jobs:
               live.set(wf.id, wf);
             }
 
-            // Runs are listed repo-wide rather than per workflow_id on purpose.
-            // listWorkflowRuns({workflow_id}) resolves through the workflow FILE
-            // and 404s once that file is deleted, while listRepoWorkflows keeps
-            // returning the workflow with state 'deleted'. That combination is
-            // what broke this job when the bullseye workflow was removed: the
-            // deleted workflow still matched the name filter, its run listing
-            // 404'd, and the uncaught throw failed the whole run.
+            // List runs repo-wide: per-workflow listing 404s once a workflow file is deleted.
             const allRuns = await github.paginate(
               github.rest.actions.listWorkflowRunsForRepo, { owner, repo, per_page: 100 });
 
@@ -64,8 +58,7 @@ jobs:
 
               if (!name.toLowerCase().includes(FILTER.toLowerCase()) && !isSelf) continue;
 
-              // An orphaned workflow has no file any more, so none of its runs
-              // can ever be re-run or compared against. Keep none of them.
+              // Workflow file deleted: keep none of its runs.
               const keep = orphaned ? 0 : (isSelf ? KEEP_SELF : KEEP);
               const toDelete = runs.slice(keep).filter(r => r.id !== currentRunId);
 
@@ -78,7 +71,7 @@ jobs:
                   await github.rest.actions.deleteWorkflowRun({ owner, repo, run_id: run.id });
                   wfDeleted++; deleted++;
                 } catch (e) {
-                  // In-progress runs cannot be deleted; that is normal, not fatal.
+                  // In-progress runs cannot be deleted.
                   wfFailed++; failed++;
                   core.warning(`could not delete run ${run.id} of ${label}: ${e.status ?? ''} ${e.message}`);
                 }

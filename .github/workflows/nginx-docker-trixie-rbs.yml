@@ -1,26 +1,11 @@
 name: Build Nginx Docker Trixie
 
-# Container counterpart to nginx-trixie-rbs.yml. Fully independent of the .deb
-# pipeline: nothing here reads OpenRepo, the download host, or any .deb artifact.
-# nginx is compiled from the upstream source tarball with the same configure
-# flags, hardening flags and OpenSSL options as rules-trixie.
-#
-# Differences from the .deb workflow, all deliberate:
-#   - versions are validated, not assumed: an empty scrape fails the run
-#   - tarball digests are pinned and enforced by the Dockerfile, not trusted
-#   - the registry, not a git tag list, is the source of truth for what is
-#     already published
-#   - the image is smoke-tested before it is pushed, never after
-#   - failures notify; the .deb workflow only mails on success
-#
-# The nginx version is the only build trigger. Each build compiles against
-# whatever OpenSSL 3.x is current; an OpenSSL release alone does not rebuild.
-# Use force_build for that.
+# Docker image (trixie), built from source; independent of the .deb pipeline.
+# Builds only for a new nginx version, or with force_build.
 
 on:
   schedule:
-    # 04:47 UTC, well after the 03:23 .deb builds so the two never contend, and off
-    # the full hour, when GitHub delays scheduled runs the most.
+    # 04:47 UTC, after the .deb builds; off the full hour.
     - cron: '47 4 * * *'
   workflow_dispatch:
     inputs:
@@ -29,7 +14,7 @@ on:
         type: boolean
         default: false
 
-# Never let two image builds race to the same tag.
+# One image build at a time.
 concurrency:
   group: nginx-docker-trixie
   cancel-in-progress: false
@@ -72,8 +57,7 @@ jobs:
         id: openssl
         run: |
           set -euo pipefail
-          # sort -V rather than trusting page order, and an explicit 3.x match
-          # rather than excluding 4 by prefix.
+          # Newest 3.x by sort -V.
           VER="$(curl -fsS --retry 3 --retry-delay 2 https://openssl-library.org/source/ \
                  | grep -oP 'openssl-\K3\.[0-9]+\.[0-9]+(?=\.tar\.gz)' \
                  | sort -V | tail -n 1 || true)"
@@ -106,7 +90,7 @@ jobs:
           curl -fsSL --retry 3 -o openssl.tar.gz \
             "https://github.com/openssl/openssl/releases/download/openssl-${OPENSSL_VERSION}/openssl-${OPENSSL_VERSION}.tar.gz"
 
-          # OpenSSL publishes a .sha256 next to each release asset — use it.
+          # Check against OpenSSL's published .sha256.
           if curl -fsSL --retry 3 -o openssl.sha256 \
                "https://github.com/openssl/openssl/releases/download/openssl-${OPENSSL_VERSION}/openssl-${OPENSSL_VERSION}.tar.gz.sha256"; then
             expected="$(tr -d '[:space:]' < openssl.sha256 | grep -oE '^[0-9a-f]{64}' || true)"
@@ -120,12 +104,7 @@ jobs:
             echo "::warning::no upstream .sha256 for OpenSSL ${OPENSSL_VERSION}; pinning the digest we downloaded"
           fi
 
-          # No signature check on the nginx tarball by request. The digest below
-          # is therefore an integrity check between this job and the build, not
-          # provenance: it guarantees the Dockerfile compiles exactly the bytes
-          # resolved here, and makes a truncated or corrupted transfer fail the
-          # build. The OpenSSL digest above is compared against upstream's own
-          # published .sha256, so that one is provenance.
+          # Digests passed to the Dockerfile, which verifies the downloads.
           echo "nginx_sha256=$(sha256sum nginx.tar.gz | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
           echo "openssl_sha256=$(sha256sum openssl.tar.gz | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
 
@@ -146,10 +125,7 @@ jobs:
           VERSION_TAG="${NGINX_VERSION}-${DEBIAN_SUITE}"
           echo "version_tag=$VERSION_TAG" >> "$GITHUB_OUTPUT"
 
-          # Always record the verdict in the run summary. A skipped publish must
-          # not be indistinguishable from a successful one: when should_run is
-          # false, build and notify skip and GitHub renders the run green, which
-          # previously looked exactly like "published".
+          # Write the decision to the run summary.
           decide() {
             echo "should_run=$1" >> "$GITHUB_OUTPUT"
             {
@@ -171,13 +147,7 @@ jobs:
             exit 0
           fi
 
-          # The nginx version is the ONLY build trigger. Whatever OpenSSL 3.x is
-          # current at build time gets compiled in, but an OpenSSL release on its
-          # own does not cause a rebuild. To rebuild the same nginx version
-          # against a newer OpenSSL, dispatch with force_build.
-          #
-          # The registry is the source of truth for what is published, so there
-          # is no local tag list to drift out of sync.
+          # Already on Docker Hub = nothing to build.
           if docker buildx imagetools inspect "${IMAGE}:${VERSION_TAG}" >/dev/null 2>&1; then
             decide false "${VERSION_TAG} already published; nginx version unchanged"
           else
@@ -191,9 +161,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        # Pin third-party and first-party actions to a commit SHA before this
-        # goes anywhere near production credentials — a moved tag is a supply
-        # chain problem. Tags are used here only so the file is readable.
         uses: actions/checkout@v6
 
       - name: Set up Buildx
@@ -208,8 +175,7 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # Build and load locally first. Nothing reaches Docker Hub until the smoke
-      # test has passed against this exact image.
+      # Load locally; push only after the smoke test.
       - name: Build image
         uses: docker/build-push-action@v7.3.0
         with:
@@ -244,15 +210,7 @@ jobs:
           VERSION_TAG: ${{ needs.resolve.outputs.version_tag }}
         run: |
           set -euo pipefail
-          # Two tags, by design. Edit this array to change the tag policy.
-          #
-          # <nginx>-trixie  the version people pin; re-pushed in place if the
-          #                 same nginx is rebuilt against a newer OpenSSL
-          # latest          always the newest build
-          #
-          # `latest` is only unambiguous because trixie is the sole suite built
-          # here. If bookworm or bullseye is ever added to this workflow, latest
-          # has to be reconsidered or it means "whichever ran last".
+          # Tags: <nginx>-trixie and latest.
           TAGS=( "${VERSION_TAG}" "latest" )
           for t in "${TAGS[@]}"; do
             echo "pushing ${IMAGE}:${t}"

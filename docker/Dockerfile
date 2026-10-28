@@ -270,8 +270,10 @@ SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
 
 COPY --from=builder /opt/runtime-deps.txt /tmp/runtime-deps.txt
 
+# Install all pending updates, including security fixes.
 # ruby: needed by Passenger. curl, wget, dig, host, netstat: debugging tools.
 RUN apt-get -qq update \
+ && apt-get -qq full-upgrade -y -o Dpkg::Options::=--force-confold \
  && apt-get -qq install -y --no-install-recommends \
       bind9-dnsutils \
       bind9-host \
